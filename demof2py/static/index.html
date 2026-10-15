@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>f2py Workbench — Fortran–Python Numerical &amp; Diagnostic Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main workbench content</a>
+
+  <!-- Top Application Header -->
+  <header class="app-header" role="banner">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
+          <div class="brand-title-row">
+            <span class="brand-title">f2py Workbench</span>
+            <span class="version-chip" id="header-version-chip">v2.0.0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop Primary Navigation -->
+      <nav class="desktop-nav" aria-label="Primary Workbench Navigation">
+        <button type="button" class="nav-tab is-active" data-nav-target="overview" aria-current="page">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+          </svg>
+          <span>Overview</span>
+        </button>
+        <button type="button" class="nav-tab" data-nav-target="kernels">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span>Kernel Runner</span>
+        </button>
+        <button type="button" class="nav-tab" data-nav-target="precision">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          <span>Precision Explorer</span>
+        </button>
+        <button type="button" class="nav-tab" data-nav-target="auditor">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <path d="M9 15l2 2 4-4"/>
+          </svg>
+          <span>f2py Auditor</span>
+        </button>
+      </nav>
+
+      <!-- Header Right Controls: Theme Switcher & Runtime Account/Environment Menu -->
+      <div class="header-actions">
+        <div class="theme-segmented" role="group" aria-label="Color theme">
+          <button type="button" class="theme-btn" data-theme-choice="light" aria-pressed="false" title="Light theme">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <span class="theme-btn-label">Light</span>
+          </button>
+          <button type="button" class="theme-btn is-active" data-theme-choice="dark" aria-pressed="true" title="Dark theme">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <span class="theme-btn-label">Dark</span>
+          </button>
+        </div>
+
+        <div class="runtime-menu-wrapper">
+          <button
+            type="button"
+            class="runtime-trigger-btn"
+            id="runtime-menu-btn"
+            aria-expanded="false"
+            aria-haspopup="dialog"
+            aria-controls="runtime-popover"
+            aria-label="Open runtime environment and ABI details"
+          >
+            <span class="status-dot is-online" aria-hidden="true"></span>
+            <span class="runtime-trigger-text">ABI Bridge</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+
+          <div class="runtime-popover" id="runtime-popover" role="dialog" aria-label="Runtime Environment Info" hidden>
+            <div class="popover-header">
+              <div class="popover-identity">
+                <div class="popover-avatar" aria-hidden="true">F90</div>
+                <div>
+                  <div class="popover-title">Fortran–Python Runtime</div>
+                  <div class="popover-subtitle" id="runtime-platform-label">macOS arm64 • NumPy ABI</div>
+                </div>
+              </div>
+              <button type="button" class="icon-close-btn" id="close-runtime-popover" aria-label="Close runtime environment menu">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div class="popover-body">
+              <dl class="runtime-kv-list">
+                <div class="runtime-kv-row">
+                  <dt>Python Engine</dt>
+                  <dd class="mono-text" id="rt-python-ver">3.14.7</dd>
+                </div>
+                <div class="runtime-kv-row">
+                  <dt>NumPy C-API</dt>
+                  <dd class="mono-text" id="rt-numpy-ver">2.5.4</dd>
+                </div>
+                <div class="runtime-kv-row">
+                  <dt>Active <code>.f2py_f2cmap</code></dt>
+                  <dd class="mono-text">sp, dp, qp, real32, real64, real128</dd>
+                </div>
+                <div class="runtime-kv-row">
+                  <dt>License &amp; Tier</dt>
+                  <dd>Open-Source MIT (Unrestricted Local Compute)</dd>
+                </div>
+              </dl>
+            </div>
+            <div class="popover-footer">
+              <button type="button" class="btn btn-secondary btn-sm btn-full" id="copy-cmap-popover-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span>Copy Production <code>.f2py_f2cmap</code></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main id="main-content" class="app-main" role="main">
+    <!-- ================================================================== -->
+    <!-- VIEW 1: OVERVIEW (Hero Image Overlay + Architecture + Run History) -->
+    <!-- ================================================================== -->
+    <section id="view-overview" class="view-section is-active" aria-labelledby="heading-overview">
+      <!-- Area 11: Purposeful Image/Text Overlay Surface -->
+      <div class="hero-overlay-card">
+        <img
+          src="/static/bridge-mesh.svg"
+          alt="3D numerical computational mesh and IEEE 754 64-bit register diagram"
+          class="hero-bg-image"
+        />
+        <div class="hero-gradient-scrim" aria-hidden="true"></div>
+        <div class="hero-overlay-content">
+          <div class="hero-badge-row">
+            <span class="hero-pill">
+              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>IEEE 754 &amp; C-ABI Verified</span>
+            </span>
+            <span class="hero-pill hero-pill-subtle mono-text">.f2py_f2cmap Active</span>
+          </div>
+          <h1 id="heading-overview" class="hero-title" tabindex="-1">
+            High-Speed Fortran Kernels, Precision Auditing &amp; Python Bridge
+          </h1>
+          <p class="hero-description">
+            Execute compiled Fortran subroutines with explicit <code>INTENT(IN)</code>, <code>INTENT(OUT)</code>, and in-place <code>INTENT(INOUT)</code> NumPy array buffers, benchmark 16-to-128-bit machine epsilon, and audit Fortran 77/90 source files before packaging.
+          </p>
+          <div class="hero-cta-group">
+            <button type="button" class="btn btn-primary" data-jump-view="kernels">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              <span>Open Kernel Runner</span>
+            </button>
+            <button type="button" class="btn btn-overlay-secondary" data-jump-view="auditor">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span>Audit Fortran Source</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Optional Guided Quick-Start Banner (with explicit Skip path so users are never trapped) -->
+      <aside class="onboarding-banner" id="onboarding-banner" aria-label="Quick-start walkthrough">
+        <div class="onboarding-steps">
+          <div class="onboarding-header">
+            <span class="onboarding-tag">Interactive Walkthrough</span>
+            <span class="onboarding-step-counter" id="tour-step-indicator">Step 1 of 3</span>
+          </div>
+          <h2 class="onboarding-title" id="tour-step-title">1. Understand Fortran INTENT Declarations in f2py</h2>
+          <p class="onboarding-text" id="tour-step-desc">
+            Unlike plain Fortran compilers where all subroutine parameters pass by mutable reference, <code>f2py</code> treats any parameter without an explicit <code>INTENT</code> as input-only (<code>INTENT(IN)</code>). Use <code>INTENT(OUT)</code> to return values to Python or <code>INTENT(INOUT)</code> with a <code>numpy.ndarray</code> buffer.
+          </p>
+          <div class="onboarding-progress-track" aria-hidden="true">
+            <div class="onboarding-progress-fill" id="tour-progress-bar" style="width: 33.33%"></div>
+          </div>
+        </div>
+        <div class="onboarding-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="tour-prev-btn" disabled>Previous</button>
+          <button type="button" class="btn btn-primary btn-sm" id="tour-next-btn">Next Step</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="tour-skip-btn">Skip Tour</button>
+        </div>
+      </aside>
+
+      <!-- Product-Led Feature Capabilities Grid -->
+      <div class="section-block">
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Core Fortran–Python Integration Modules</h2>
+            <p class="section-subtitle">Select a module to inspect real Fortran memory semantics, kind mappings, or compiler rules.</p>
+          </div>
+        </div>
+
+        <div class="capability-grid">
+          <!-- Card 1 -->
+          <article class="surface-card capability-card">
+            <div class="card-top-row">
+              <h3 class="card-title">Subroutine INTENT Semantics</h3>
+              <span class="status-badge status-success">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <span>6 Kernels Ready</span>
+              </span>
+            </div>
+            <p class="card-body-text">
+              Compare <code>ProdIntent</code>, <code>ProdInOut</code>, <code>ProdNoIntent</code>, <code>prodpure</code>, and 64-bit vector routines from <code>prod.f90</code>.
+            </p>
+            <div class="code-preview-box mono-text">
+              <div class="code-line"><span class="code-kw">real</span>, <span class="code-attr">Intent(In)</span>  :: x, y</div>
+              <div class="code-line"><span class="code-kw">real</span>, <span class="code-attr">Intent(Out)</span> :: z <span class="code-comment">! -&gt; Python float</span></div>
+            </div>
+            <div class="card-footer-row">
+              <span class="meta-label">Source: <code>prod.f90</code></span>
+              <button type="button" class="btn btn-secondary btn-sm" data-jump-view="kernels">
+                <span>Run Kernels</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                  <polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </button>
+            </div>
+          </article>
+
+          <!-- Card 2 -->
+          <article class="surface-card capability-card">
+            <div class="card-top-row">
+              <h3 class="card-title">IEEE 754 &amp; <code>.f2py_f2cmap</code></h3>
+              <span class="status-badge status-info">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="16" x2="12" y2="12"/>
+                  <line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+                <span>16 to 128-Bit</span>
+              </span>
+            </div>
+            <p class="card-body-text">
+              Verify mantissa bits ($\epsilon = 2^{-(p-1)}$) across half, single, double, and quadruple precision and prevent silent 32-bit truncation.
+            </p>
+            <div class="code-preview-box mono-text">
+              <div class="code-line">dict(real=dict(sp=<span class="code-str">'float'</span>, dp=<span class="code-str">'double'</span>,</div>
+              <div class="code-line">     real64=<span class="code-str">'double'</span>, real128=<span class="code-str">'long_double'</span>))</div>
+            </div>
+            <div class="card-footer-row">
+              <span class="meta-label">Source: <code>floatPrecision.f90</code></span>
+              <button type="button" class="btn btn-secondary btn-sm" data-jump-view="precision">
+                <span>Explore Precision</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                  <polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </button>
+            </div>
+          </article>
+
+          <!-- Card 3 -->
+          <article class="surface-card capability-card">
+            <div class="card-top-row">
+              <h3 class="card-title">Fortran 77/90 Readiness Auditor</h3>
+              <span class="status-badge status-warning">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span>7 Project Files</span>
+              </span>
+            </div>
+            <p class="card-body-text">
+              Catch disallowed inline <code>!</code> comments in fixed-form <code>.f</code> files, missing <code>implicit none</code>, and unmapped kind parameters with one-click fixes.
+            </p>
+            <div class="code-preview-box mono-text">
+              <div class="code-line"><span class="code-kw">common</span> x <span class="code-err">! bad for Fortran77 (.f)</span></div>
+              <div class="code-line"><span class="code-comment">! Full-line comment required in .f</span></div>
+            </div>
+            <div class="card-footer-row">
+              <span class="meta-label">Source: <code>badcomment.f</code></span>
+              <button type="button" class="btn btn-secondary btn-sm" data-jump-view="auditor">
+                <span>Open Auditor</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                  <polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <!-- Session Calculation History (Demonstrates Mobile #8 First-Use Empty State + Populated List) -->
+      <div class="section-block">
+        <div class="section-header-row">
+          <div class="section-title-with-badge">
+            <h2 class="section-title">Session Calculation Log</h2>
+            <span class="count-badge" id="history-count-badge">0 runs</span>
+          </div>
+          <div class="section-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="clear-history-btn" hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              </svg>
+              <span>Clear Log</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="surface-card list-container-card">
+          <!-- First-Use Empty State -->
+          <div id="history-empty-state" class="empty-state-box">
+            <div class="empty-state-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </div>
+            <span class="coachmark-pill">First-Use Guide</span>
+            <h3 class="empty-state-title">No Fortran Kernels Executed Yet</h3>
+            <p class="empty-state-description">
+              Run your first scalar or 64-bit vector calculation to compare how <code>INTENT(OUT)</code>, <code>INTENT(INOUT)</code>, and <code>ProdNoIntent</code> behave across the Python–Fortran boundary.
+            </p>
+            <div class="empty-state-actions">
+              <button type="button" class="btn btn-primary" id="run-first-kernel-btn">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Execute Sample Kernel (x=3, y=2)</span>
+              </button>
+              <button type="button" class="btn btn-secondary" data-jump-view="kernels">
+                <span>Configure Custom Inputs</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Populated History List -->
+          <div id="history-list-wrapper" class="record-list" role="list" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 2: KERNEL RUNNER (Focused Task Screen)                        -->
+    <!-- ================================================================== -->
+    <section id="view-kernels" class="view-section" aria-labelledby="heading-kernels" hidden>
+      <div class="view-header-bar">
+        <div>
+          <span class="view-eyebrow">FORTRAN MODULE: PROD (prod.f90)</span>
+          <h1 id="heading-kernels" class="view-title" tabindex="-1">Interactive Fortran Kernel Runner</h1>
+        </div>
+        <div class="view-header-actions">
+          <button type="button" class="btn btn-secondary" id="compare-all-kernels-btn">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="16 3 21 3 21 8"/>
+              <line x1="4" y1="20" x2="21" y2="3"/>
+              <polyline points="21 16 21 21 16 21"/>
+              <line x1="15" y1="15" x2="21" y2="21"/>
+              <line x1="4" y1="4" x2="9" y2="9"/>
+            </svg>
+            <span>Compare All 6 Routines</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Kernel Filter & Search Bar + Parameter Input Workbench -->
+      <div class="workbench-two-col">
+        <!-- Left Column: Routine Selector with Search & Filter Chips -->
+        <div class="surface-card selector-panel">
+          <div class="panel-header">
+            <h2 class="panel-title">1. Select Fortran Routine</h2>
+            <span class="count-badge" id="kernel-filter-count">6 routines</span>
+          </div>
+
+          <!-- Icon-Safe Search Input (12px offset + 16px icon + 12px gap = 40px left padding) -->
+          <div class="search-field-wrapper">
+            <svg class="search-field-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="search"
+              id="kernel-search-input"
+              class="form-input is-icon-safe"
+              placeholder="Filter by routine or intent (e.g. inout, real64)..."
+              aria-label="Filter Fortran calculation routines"
+              autocomplete="off"
+            />
+            <button type="button" class="search-clear-btn" id="kernel-search-clear" aria-label="Clear routine filter" hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Category Filter Chips -->
+          <div class="filter-chip-row" role="group" aria-label="Filter routines by category">
+            <button type="button" class="filter-chip is-active" data-kernel-cat="all" aria-pressed="true">All Routines</button>
+            <button type="button" class="filter-chip" data-kernel-cat="scalar" aria-pressed="false">Scalar (real32)</button>
+            <button type="button" class="filter-chip" data-kernel-cat="vector" aria-pressed="false">Vector (real64)</button>
+          </div>
+
+          <!-- Routine Selection List -->
+          <div id="kernel-selector-list" class="kernel-option-list" role="listbox" aria-label="Fortran routines"></div>
+
+          <!-- Query-Aware No-Results State for Routine Search -->
+          <div id="kernel-no-results" class="no-results-box" hidden>
+            <div class="empty-state-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </div>
+            <h3 class="empty-state-title">No matching Fortran routines</h3>
+            <p class="empty-state-description" id="kernel-no-results-text">
+              No routine matched your filter query.
+            </p>
+            <div class="suggestion-chip-group">
+              <span class="meta-label">Try keyword:</span>
+              <button type="button" class="suggestion-chip" data-suggest-kernel="intent">intent</button>
+              <button type="button" class="suggestion-chip" data-suggest-kernel="inout">inout</button>
+              <button type="button" class="suggestion-chip" data-suggest-kernel="real64">real64</button>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="reset-kernel-search-btn">Reset Routine Filter</button>
+          </div>
+        </div>
+
+        <!-- Right Column: Input Form & Active Routine Output Telemetry -->
+        <div class="kernel-execution-col">
+          <form id="kernel-exec-form" class="surface-card form-panel" novalidate>
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">2. Configure Operands &amp; Buffer</h2>
+                <p class="panel-subtitle" id="active-kernel-subtitle">Selected: <code>prod.prodintent(x, y)</code></p>
+              </div>
+              <span class="kbd-hint" title="Keyboard shortcut: Command/Ctrl + Enter">⌘ / Ctrl + Enter</span>
+            </div>
+
+            <!-- Scalar Inputs -->
+            <div id="scalar-inputs-group" class="form-grid-two">
+              <div class="form-field">
+                <label for="input-x" class="field-label">Operand <code>x</code> (real)</label>
+                <input type="number" id="input-x" class="form-input mono-text" value="3" step="any" required />
+                <span class="field-helper">Passed with <code>INTENT(IN)</code></span>
+              </div>
+              <div class="form-field">
+                <label for="input-y" class="field-label">Operand <code>y</code> (real)</label>
+                <input type="number" id="input-y" class="form-input mono-text" value="2" step="any" required />
+                <span class="field-helper">Passed with <code>INTENT(IN)</code></span>
+              </div>
+            </div>
+
+            <!-- Vector Inputs (Shown when a vector kernel is selected or via progressive disclosure) -->
+            <div id="vector-inputs-group" class="form-grid-two" hidden>
+              <div class="form-field">
+                <label for="input-vec-x" class="field-label">Vector <code>x(n)</code> (comma-separated <code>real64</code>)</label>
+                <input type="text" id="input-vec-x" class="form-input mono-text" value="1.5, 2.5, 3.5, 4.5" />
+                <span class="field-helper">Contiguous 64-bit float array</span>
+              </div>
+              <div class="form-field">
+                <label for="input-vec-y" class="field-label">Vector <code>y(n)</code> (comma-separated <code>real64</code>)</label>
+                <input type="text" id="input-vec-y" class="form-input mono-text" value="2.0, 4.0, 6.0, 8.0" />
+                <span class="field-helper">Must match length of <code>x(n)</code></span>
+              </div>
+            </div>
+
+            <!-- Progressive Disclosure for Advanced Buffer / Initial Z Settings -->
+            <div class="progressive-disclosure-box">
+              <button
+                type="button"
+                class="disclosure-trigger"
+                id="toggle-advanced-buffer-btn"
+                aria-expanded="false"
+                aria-controls="advanced-buffer-fields"
+              >
+                <svg class="disclosure-chevron" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span>Advanced Memory Buffer &amp; Initial <code>z</code> Options</span>
+              </button>
+              <div id="advanced-buffer-fields" class="disclosure-content" hidden>
+                <div class="form-grid-two">
+                  <div class="form-field">
+                    <label for="input-z-init" class="field-label">Initial <code>z</code> value before call</label>
+                    <input type="number" id="input-z-init" class="form-input mono-text" value="12345.0" step="any" />
+                    <span class="field-helper">Tests whether Fortran overwrites <code>z</code></span>
+                  </div>
+                  <div class="form-field checkbox-field">
+                    <label class="checkbox-label" for="input-use-ndarray">
+                      <input type="checkbox" id="input-use-ndarray" checked />
+                      <span>Wrap <code>z</code> in 0-D <code>np.ndarray</code> for <code>INTENT(INOUT)</code></span>
+                    </label>
+                    <span class="field-helper">Uncheck to test f2py's scalar type error guard on <code>ProdInOut</code></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Inline Validation / Error Banner -->
+            <div id="kernel-validation-alert" class="semantic-panel panel-danger" role="alert" hidden>
+              <div class="semantic-panel-header">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <strong id="kernel-error-title">Execution Error</strong>
+              </div>
+              <p id="kernel-error-desc" class="semantic-panel-body"></p>
+              <div class="semantic-panel-actions" id="kernel-error-recovery" hidden>
+                <button type="button" class="btn btn-secondary btn-sm" id="fix-ndarray-error-btn">
+                  Enable 0-D <code>np.ndarray</code> Buffer &amp; Retry
+                </button>
+              </div>
+            </div>
+
+            <div class="form-footer-actions">
+              <button type="button" class="btn btn-secondary" id="reset-kernel-inputs-btn">Reset Defaults</button>
+              <button type="submit" class="btn btn-primary" id="run-kernel-submit-btn">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span id="run-kernel-btn-label">Execute Fortran Kernel</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- Primary Result Telemetry Card (Area 2 Visual Hierarchy) -->
+          <article class="surface-card result-telemetry-card" id="primary-telemetry-card" aria-live="polite">
+            <div class="card-top-row">
+              <div>
+                <span class="meta-label" id="res-fortran-sub">Subroutine ProdIntent(x, y, z)</span>
+                <h3 class="card-title mono-text" id="res-kernel-name">prod.prodintent</h3>
+              </div>
+              <div class="result-highlight-Right">
+                <span class="result-primary-value mono-text" id="res-primary-output">6.0</span>
+                <span class="latency-pill mono-text" id="res-latency-badge">0.8 µs</span>
+              </div>
+            </div>
+
+            <div class="telemetry-badge-bar">
+              <span class="status-badge status-success" id="res-status-badge">Returns Value</span>
+              <span class="meta-chip mono-text" id="res-intent-chip">INTENT(IN) / INTENT(OUT)</span>
+              <span class="meta-chip mono-text" id="res-precision-chip">real32 (float)</span>
+            </div>
+
+            <p class="telemetry-explanation" id="res-explanation">
+              f2py allocated output z in C, called Fortran ProdIntent(3.0, 2.0, &amp;z), and returned 6.0 directly as a Python float.
+            </p>
+
+            <div class="code-comparison-split">
+              <div class="code-pane">
+                <div class="code-pane-header">
+                  <span>Fortran Implementation</span>
+                  <button type="button" class="copy-chip-btn" data-copy-target="res-fortran-code" aria-label="Copy Fortran subroutine source">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span class="copy-btn-text">Copy</span>
+                  </button>
+                </div>
+                <pre class="code-block mono-text" id="res-fortran-code">Subroutine ProdIntent(x,y,z)
+  real, Intent(In)  :: x, y
+  real, Intent(Out) :: z
+  z = x * y
+End Subroutine</pre>
+              </div>
+              <div class="code-pane">
+                <div class="code-pane-header">
+                  <span>Python Call &amp; Memory State</span>
+                  <button type="button" class="copy-chip-btn" data-copy-target="res-python-call" aria-label="Copy Python invocation">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span class="copy-btn-text">Copy</span>
+                  </button>
+                </div>
+                <pre class="code-block mono-text" id="res-python-call">from pyprod import prod
+z = prod.prodintent(3.0, 2.0)
+assert z == 6.0  # isinstance(z, float)</pre>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Comparison Table with Conditional Scroll Hint -->
+      <div class="section-block">
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Side-by-Side Routine &amp; INTENT Comparison</h2>
+            <p class="section-subtitle">Live comparison of how each declaration style passes results back to Python.</p>
+          </div>
+          <span class="scroll-hint-pill" id="comparison-scroll-hint" hidden>
+            <span>Swipe horizontally to view all columns →</span>
+          </span>
+        </div>
+
+        <div class="surface-card table-card">
+          <div class="table-scroll-container" id="comparison-table-scroller" role="region" aria-label="Fortran INTENT comparison table" tabindex="0">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Routine</th>
+                  <th scope="col">Fortran INTENT Mode</th>
+                  <th scope="col">Python Return</th>
+                  <th scope="col"><code>z</code> After Call</th>
+                  <th scope="col">Outcome Status</th>
+                  <th scope="col">Latency</th>
+                </tr>
+              </thead>
+              <tbody id="intent-comparison-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 3: PRECISION EXPLORER (IEEE 754 Chart + .f2py_f2cmap Audit)   -->
+    <!-- ================================================================== -->
+    <section id="view-precision" class="view-section" aria-labelledby="heading-precision" hidden>
+      <div class="view-header-bar">
+        <div>
+          <span class="view-eyebrow">IEEE 754 FLOATING-POINT &amp; KIND MAPPING (floatPrecision.f90 / badprec.f90)</span>
+          <h1 id="heading-precision" class="view-title" tabindex="-1">Precision &amp; <code>.f2py_f2cmap</code> Explorer</h1>
+        </div>
+        <div class="view-header-actions">
+          <!-- Aggregate vs Individual Entity Toggle (SaaS #5) -->
+          <div class="segmented-control" role="group" aria-label="Precision view mode">
+            <button type="button" class="seg-btn is-active" data-prec-mode="aggregate" aria-pressed="true">Aggregate Comparison</button>
+            <button type="button" class="seg-btn" data-prec-mode="individual" aria-pressed="false">Individual Tier Inspector</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quantitative Chart: IEEE 754 Significand Bits & Decimal Digits (Beginner #8 & SaaS #5) -->
+      <div class="surface-card chart-card">
+        <div class="card-top-row">
+          <div>
+            <h2 class="card-title">IEEE 754 Significand (Mantissa) Precision &amp; Machine Epsilon</h2>
+            <p class="section-subtitle">
+              Iterative computation of mantissa bits ($p$) where $1 + 2^{-(p-1)} \neq 1$, matching <code>floatPrecision.f90</code> and <code>floatPrecision.py</code>.
+            </p>
+          </div>
+          <span class="meta-chip mono-text">Scale: 0 to 128 Bits</span>
+        </div>
+
+        <!-- Bar Chart with Explicit Axis Ticks, Units, and Unrounded Endpoints -->
+        <div class="quant-chart-wrapper" role="img" aria-label="Horizontal bar chart comparing significand bits across IEEE 754 floating-point tiers: 16-bit has 11 bits, 32-bit has 24 bits, 64-bit has 53 bits, and 128-bit has 113 bits">
+          <div class="chart-axis-header mono-text" aria-hidden="true">
+            <span>Format Tier</span>
+            <div class="chart-scale-ticks">
+              <span>0 bits</span>
+              <span>32 bits</span>
+              <span>64 bits</span>
+              <span>96 bits</span>
+              <span>128 bits</span>
+            </div>
+            <span>Machine Epsilon ($\epsilon$)</span>
+          </div>
+          <div id="precision-bars-container" class="chart-rows-group"></div>
+        </div>
+      </div>
+
+      <!-- Individual Tier Selector (Visible in Individual Inspector mode) -->
+      <div id="individual-tier-panel" class="surface-card tier-inspector-card" hidden>
+        <div class="panel-header">
+          <h2 class="panel-title">Inspect Single IEEE 754 Format Tier</h2>
+          <div class="filter-chip-row" role="group" aria-label="Select floating-point tier">
+            <button type="button" class="filter-chip" data-tier-id="float16" aria-pressed="false">float16 (Half)</button>
+            <button type="button" class="filter-chip" data-tier-id="float32" aria-pressed="false">float32 (Single)</button>
+            <button type="button" class="filter-chip is-active" data-tier-id="float64" aria-pressed="true">float64 (Double)</button>
+            <button type="button" class="filter-chip" data-tier-id="float128" aria-pressed="false">float128 (Quad)</button>
+          </div>
+        </div>
+        <div id="individual-tier-detail" class="tier-detail-grid"></div>
+      </div>
+
+      <!-- .f2py_f2cmap Truncation & Literal Promotion Comparison (badprec.f90) -->
+      <div class="section-block">
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Why <code>.f2py_f2cmap</code> &amp; Kind Suffixes Matter (<code>badprec.f90</code>)</h2>
+            <p class="section-subtitle">
+              Reference $\pi = 3.14159265358979323846$. Unmapped kinds or single-precision literals lose 9 decimal digits of accuracy.
+            </p>
+          </div>
+        </div>
+
+        <div id="cmap-cases-grid" class="capability-grid"></div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 4: F2PY AUDITOR (Static Linter + Mobile Bottom Sheet Presets) -->
+    <!-- ================================================================== -->
+    <section id="view-auditor" class="view-section" aria-labelledby="heading-auditor" hidden>
+      <div class="view-header-bar">
+        <div>
+          <span class="view-eyebrow">STATIC FORTRAN &amp; .F2PY_F2CMAP DIAGNOSTICS</span>
+          <h1 id="heading-auditor" class="view-title" tabindex="-1">Fortran 77/90 <code>f2py</code> Readiness Auditor</h1>
+        </div>
+        <div class="view-header-actions">
+          <button type="button" class="btn btn-secondary" id="open-preset-sheet-btn" aria-haspopup="dialog" aria-controls="preset-sheet-backdrop">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span>Choose Project Preset</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Contextual Editing Action Bar (Mobile #7: Contextual Action Changes when editing) -->
+      <div id="auditor-contextual-bar" class="contextual-editor-bar" role="region" aria-label="Editor contextual actions" hidden>
+        <div class="contextual-status">
+          <span class="unsaved-dot" aria-hidden="true"></span>
+          <span class="contextual-status-text">Editing Fortran source (unsaved changes)</span>
+        </div>
+        <div class="contextual-btn-group">
+          <button type="button" class="btn btn-primary btn-sm" id="ctx-run-audit-btn">Run Audit</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="ctx-apply-fix-btn">Apply Auto-Fix</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ctx-revert-btn">Revert</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ctx-done-editing-btn">Done</button>
+        </div>
+      </div>
+
+      <div class="workbench-two-col">
+        <!-- Left Column: Fortran Code Editor & Dialect / Cmap Settings -->
+        <div class="surface-card editor-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Fortran Source Buffer</h2>
+              <p class="panel-subtitle" id="auditor-active-file-label">Active file: <code>badcomment.f</code></p>
+            </div>
+            <span class="status-badge status-danger" id="auditor-overall-badge">1 Blocking Issue</span>
+          </div>
+
+          <div class="form-grid-two">
+            <div class="form-field">
+              <label for="audit-filename-input" class="field-label">Filename &amp; Dialect (<code>.f</code> vs <code>.f90</code>)</label>
+              <input type="text" id="audit-filename-input" class="form-input mono-text" value="badcomment.f" />
+            </div>
+            <div class="form-field">
+              <label for="audit-cmap-select" class="field-label">Active <code>.f2py_f2cmap</code> Mode</label>
+              <div class="segmented-control" id="audit-cmap-select" role="group" aria-label="Select .f2py_f2cmap mode">
+                <button type="button" class="seg-btn is-active" data-cmap-mode="modern" aria-pressed="true">Modern (real64 mapped)</button>
+                <button type="button" class="seg-btn" data-cmap-mode="legacy" aria-pressed="false">Legacy (sp/dp only)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <div class="editor-label-row">
+              <label for="audit-code-textarea" class="field-label">Fortran Source Code</label>
+              <button type="button" class="copy-chip-btn" data-copy-target="audit-code-textarea" aria-label="Copy Fortran editor source">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span class="copy-btn-text">Copy Source</span>
+              </button>
+            </div>
+            <textarea
+              id="audit-code-textarea"
+              class="code-textarea mono-text"
+              rows="11"
+              spellcheck="false"
+            ></textarea>
+          </div>
+
+          <div class="form-footer-actions">
+            <button type="button" class="btn btn-secondary" id="apply-autofix-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/>
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              <span>Apply Auto-Remediation</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="run-audit-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="9 11 12 14 22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              <span>Audit Fortran Snippet</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Column: Audit Findings & Recommended .f2py_f2cmap -->
+        <div class="auditor-results-col">
+          <div class="surface-card findings-panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Diagnostic Findings</h2>
+              <span class="meta-chip mono-text" id="auditor-dialect-chip">Fortran 77 Fixed-Form (.f)</span>
+            </div>
+            <div id="audit-findings-list" class="findings-stack"></div>
+          </div>
+
+          <div class="surface-card cmap-recommendation-card">
+            <div class="code-pane-header">
+              <span>Recommended <code>.f2py_f2cmap</code> for Detected Kinds</span>
+              <button type="button" class="copy-chip-btn" data-copy-target="audit-recommended-cmap" aria-label="Copy recommended .f2py_f2cmap">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span class="copy-btn-text">Copy Map</span>
+              </button>
+            </div>
+            <pre class="code-block mono-text" id="audit-recommended-cmap">dict(real=dict('dp': 'double', 'real32': 'float', 'real64': 'double', 'sp': 'float'))</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================================================================== -->
+  <!-- CONTEXT-PRESERVING BOTTOM SHEET / MODAL FOR PRESET SELECTION         -->
+  <!-- (Mobile #5 & #6: Drag Handle, Search, Bounded Scroll, Safe-Area)     -->
+  <!-- ==================================================================== -->
+  <div id="preset-sheet-backdrop" class="sheet-backdrop" hidden>
+    <div
+      id="preset-sheet"
+      class="bottom-sheet-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="preset-sheet-title"
+    >
+      <div class="sheet-drag-header" id="sheet-drag-handle-zone">
+        <div class="sheet-drag-pill" aria-hidden="true"></div>
+        <div class="sheet-title-row">
+          <div>
+            <h2 id="preset-sheet-title" class="sheet-title">Select Project Fortran Preset</h2>
+            <p class="sheet-subtitle">Loads real source files from <code>scivision/f2py-examples</code> without losing session state.</p>
+          </div>
+          <button type="button" class="icon-close-btn" id="close-preset-sheet-btn" aria-label="Close preset selector">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Search inside Sheet (40px icon-safe inset) -->
+        <div class="search-field-wrapper">
+          <svg class="search-field-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="search"
+            id="preset-search-input"
+            class="form-input is-icon-safe"
+            placeholder="Search presets (e.g. badcomment, badprec, prod)..."
+            aria-label="Search Fortran preset files"
+            autocomplete="off"
+          />
+          <button type="button" class="search-clear-btn" id="preset-search-clear" aria-label="Clear preset search" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="filter-chip-row" role="group" aria-label="Filter presets by topic">
+          <button type="button" class="filter-chip is-active" data-preset-cat="all" aria-pressed="true">All Files (7)</button>
+          <button type="button" class="filter-chip" data-preset-cat="comment" aria-pressed="false">F77/F90 Comments</button>
+          <button type="button" class="filter-chip" data-preset-cat="precision" aria-pressed="false">Precision &amp; Kinds</button>
+          <button type="button" class="filter-chip" data-preset-cat="intent" aria-pressed="false">INTENT Rules</button>
+        </div>
+      </div>
+
+      <!-- Bounded Scrollable Body -->
+      <div class="sheet-scroll-body">
+        <div id="preset-options-list" class="preset-option-list" role="listbox" aria-label="Available Fortran preset files"></div>
+
+        <!-- Query-Aware No-Results State in Sheet -->
+        <div id="preset-no-results" class="no-results-box" hidden>
+          <h3 class="empty-state-title">No Fortran presets matched</h3>
+          <p class="empty-state-description" id="preset-no-results-msg">No preset file matched your search keywords.</p>
+          <div class="suggestion-chip-group">
+            <span class="meta-label">Try:</span>
+            <button type="button" class="suggestion-chip" data-suggest-preset="comment">comment</button>
+            <button type="button" class="suggestion-chip" data-suggest-preset="badprec">badprec</button>
+            <button type="button" class="suggestion-chip" data-suggest-preset="prod">prod</button>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="reset-preset-search-btn">Reset Preset Search</button>
+        </div>
+      </div>
+
+      <!-- Sheet Footer with Safe-Area Clearance -->
+      <div class="sheet-footer">
+        <button type="button" class="btn btn-secondary" id="cancel-preset-sheet-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirm-preset-sheet-btn">Load Selected Preset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Region (Area 9 & 10 Honest Async Feedback) -->
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Mobile Bottom Navigation Bar (Mobile #1: 4 Destinations, >=44x44px Targets, Safe-Area) -->
+  <nav class="mobile-bottom-nav" aria-label="Mobile Primary Navigation">
+    <button type="button" class="mobile-nav-item is-active" data-nav-target="overview" aria-current="page">
+      <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="14" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      <span>Overview</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-nav-target="kernels">
+      <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      <span>Kernels</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-nav-target="precision">
+      <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="20" x2="18" y2="10"/>
+        <line x1="12" y1="20" x2="12" y2="4"/>
+        <line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      <span>Precision</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-nav-target="auditor">
+      <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <path d="M9 15l2 2 4-4"/>
+      </svg>
+      <span>Auditor</span>
+    </button>
+  </nav>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
