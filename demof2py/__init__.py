@@ -9,6 +9,8 @@ from .benchmarks import (
     simulate_heat_pde,
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
+    simulate_rk4_oscillator,
+    simulate_poisson_2d,
     run_native_fortran_cli,
     build_diagnostic_bundle,
 )
@@ -29,8 +31,11 @@ __all__ = [
     "simulate_heat_pde",
     "evaluate_matrix_and_quadrature",
     "evaluate_quadratic_cancellation",
+    "simulate_rk4_oscillator",
+    "simulate_poisson_2d",
     "run_native_fortran_cli",
     "build_diagnostic_bundle",
 ]
+
 
 

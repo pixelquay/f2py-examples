@@ -25,6 +25,8 @@ from .benchmarks import (
     run_native_fortran_cli,
     run_performance_benchmark,
     simulate_heat_pde,
+    simulate_poisson_2d,
+    simulate_rk4_oscillator,
 )
 from .kernels import LIST_KERNELS, compare_all_intents, execute_kernel
 from .precision import run_ieee754_benchmark
@@ -131,9 +133,27 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, or linalg",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, or poisson",
     )
+
+
+class Rk4ExploreRequest(BaseModel):
+    steps: int = Field(default=120, ge=20, le=400, description="Number of RK4 integration steps")
+    dt: float = Field(default=0.05, ge=0.005, le=0.2, description="Time step size dt")
+    omega0: float = Field(default=2.0, ge=0.2, le=10.0, description="Natural frequency omega0")
+    zeta: float = Field(default=0.15, ge=0.0, le=2.5, description="Damping ratio zeta")
+
+
+class Poisson2DExploreRequest(BaseModel):
+    n: int = Field(default=15, ge=9, le=31, description="2D grid size n x n")
+    iterations: int = Field(default=80, ge=5, le=300, description="Jacobi relaxation iterations")
+    source_type: str = Field(
+        default="dipole",
+        pattern="^(dipole|central_charge|quadrupole)$",
+        description="2D Poisson source distribution: dipole, central_charge, or quadrupole",
+    )
+
 
 
 
@@ -298,6 +318,28 @@ def post_explore_quadratic(req: QuadraticExploreRequest) -> Dict[str, Any]:
 def post_run_native_cli(req: NativeCliRunRequest) -> Dict[str, Any]:
     """Execute the standalone native Fortran 2008 CLI binary (`builddir/fortran_workbench`)."""
     return run_native_fortran_cli(mode=req.mode)
+
+
+@app.post("/api/v1/ode/rk4")
+def post_explore_rk4(req: Rk4ExploreRequest) -> Dict[str, Any]:
+    """Execute the 4th-order Runge-Kutta (`Rk4HarmonicStep`) damped harmonic oscillator solver."""
+    return simulate_rk4_oscillator(
+        steps=req.steps,
+        dt=req.dt,
+        omega0=req.omega0,
+        zeta=req.zeta,
+    )
+
+
+@app.post("/api/v1/pde/poisson2d")
+def post_explore_poisson2d(req: Poisson2DExploreRequest) -> Dict[str, Any]:
+    """Execute the 2D Poisson PDE Jacobi relaxation solver (`JacobiPoisson2D`)."""
+    return simulate_poisson_2d(
+        n=req.n,
+        iterations=req.iterations,
+        source_type=req.source_type,
+    )
+
 
 
 
