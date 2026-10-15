@@ -257,6 +257,125 @@ def simulate_heat_pde(
     }
 
 
+def evaluate_matrix_and_quadrature(
+    matrix_preset: str = "rotation_scale",
+    order_mode: str = "F",
+    integrand: str = "sin_pi",
+    points: int = 101,
+) -> Dict[str, Any]:
+    """
+    Execute Fortran 2008 column-major matrix multiplication (`MatMulDp`) with
+    memory stride inspection and composite Simpson 1/3 quadrature (`SimpsonIntegrateDp`)
+    compared against the trapezoidal rule.
+    """
+    use_fortran_order = str(order_mode).upper() != "C"
+    np_order = "F" if use_fortran_order else "C"
+
+    if matrix_preset == "spd_stiffness":
+        preset_title = "3×3 Tridiagonal Stiffness × Mass Matrix"
+        raw_a = [[2.0, -1.0, 0.0], [-1.0, 2.0, -1.0], [0.0, -1.0, 2.0]]
+        raw_b = [[4.0, 1.0, 0.0], [1.0, 4.0, 1.0], [0.0, 1.0, 4.0]]
+    elif matrix_preset == "hilbert_3x3":
+        preset_title = "3×3 Hilbert Matrix Conditioning Test"
+        raw_a = [
+            [1.0, 1.0 / 2.0, 1.0 / 3.0],
+            [1.0 / 2.0, 1.0 / 3.0, 1.0 / 4.0],
+            [1.0 / 3.0, 1.0 / 4.0, 1.0 / 5.0],
+        ]
+        raw_b = [
+            [9.0, -36.0, 30.0],
+            [-36.0, 192.0, -180.0],
+            [30.0, -180.0, 180.0],
+        ]
+    else:
+        matrix_preset = "rotation_scale"
+        preset_title = "2×2 Rotation (π/6) × Anisotropic Scale"
+        c30 = math.cos(math.pi / 6.0)
+        s30 = math.sin(math.pi / 6.0)
+        raw_a = [[c30, -s30], [s30, c30]]
+        raw_b = [[2.5, 0.0], [0.0, 1.5]]
+
+    mat_a = np.array(raw_a, dtype=np.float64, order=np_order)
+    mat_b = np.array(raw_b, dtype=np.float64, order=np_order)
+    mat_c = fortnumerics.matmuldp(mat_a, mat_b)
+    mat_ref = np.matmul(mat_a, mat_b)
+
+    f_contig = bool(mat_a.flags["F_CONTIGUOUS"])
+    cond_a = float(np.linalg.cond(mat_a))
+    det_c = float(np.linalg.det(mat_c))
+    frob_c = float(np.linalg.norm(mat_c, ord="fro"))
+    max_mat_err = float(np.max(np.abs(mat_c - mat_ref)))
+
+    # Quadrature comparison
+    n_pts = max(11, min(int(points), 501))
+    if n_pts % 2 == 0:
+        n_pts += 1  # Ensure odd node count for pure Simpson 1/3 intervals
+
+    if integrand == "exp_unit":
+        integ_label = "∫₀¹ exp(x) dx"
+        a_lim, b_lim = 0.0, 1.0
+        grid = np.linspace(a_lim, b_lim, n_pts, dtype=np.float64)
+        y_vals = np.exp(grid)
+        exact_val = math.e - 1.0
+    elif integrand == "poly_quartic":
+        integ_label = "∫₀² (x⁴ + 2x² + 1) dx"
+        a_lim, b_lim = 0.0, 2.0
+        grid = np.linspace(a_lim, b_lim, n_pts, dtype=np.float64)
+        y_vals = (grid ** 4) + 2.0 * (grid ** 2) + 1.0
+        exact_val = 206.0 / 15.0
+    else:
+        integrand = "sin_pi"
+        integ_label = "∫₀^π sin(x) dx"
+        a_lim, b_lim = 0.0, math.pi
+        grid = np.linspace(a_lim, b_lim, n_pts, dtype=np.float64)
+        y_vals = np.sin(grid)
+        exact_val = 2.0
+
+    dx = float((b_lim - a_lim) / float(n_pts - 1))
+    simpson_val = fortnumerics.simpsonintegratedp(dx, y_vals)
+    trapz_val = float(np.trapezoid(y_vals, dx=dx))
+
+    simpson_err = abs(simpson_val - exact_val)
+    trapz_err = abs(trapz_val - exact_val)
+    accuracy_gain = round(trapz_err / max(simpson_err, 1e-16), 1)
+
+    return {
+        "matrix": {
+            "preset": matrix_preset,
+            "title": preset_title,
+            "shape": list(mat_c.shape),
+            "order_mode": "F" if use_fortran_order else "C",
+            "f_contiguous": f_contig,
+            "zero_copy_pass": f_contig,
+            "strides_bytes": list(mat_a.strides),
+            "abi_status_label": (
+                "Zero-Copy Column-Major (order='F')"
+                if f_contig
+                else "Implicit Copy Required (order='C' -> 'F')"
+            ),
+            "condition_number_a": round(cond_a, 4),
+            "determinant_c": round(det_c, 6),
+            "frobenius_norm_c": round(frob_c, 6),
+            "max_abs_err_vs_blas": max_mat_err,
+            "matrix_a": [[round(float(v), 4) for v in row] for row in mat_a],
+            "matrix_b": [[round(float(v), 4) for v in row] for row in mat_b],
+            "matrix_c": [[round(float(v), 5) for v in row] for row in mat_c],
+        },
+        "quadrature": {
+            "integrand": integrand,
+            "label": integ_label,
+            "points": n_pts,
+            "dx": round(dx, 6),
+            "exact_value": exact_val,
+            "simpson_value": simpson_val,
+            "trapezoid_value": trapz_val,
+            "simpson_abs_error": simpson_err,
+            "trapezoid_abs_error": trapz_err,
+            "accuracy_gain_x": accuracy_gain,
+        },
+    }
+
+
 def build_diagnostic_bundle() -> Dict[str, Any]:
     """Assemble a full JSON diagnostic & benchmark report for download/export."""
     return {
@@ -268,4 +387,6 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
         "benchmark": run_performance_benchmark("dot_product", size=5000, iterations=15),
         "heat_pde": simulate_heat_pde(n=41, steps=35, alpha=0.01, pulse_type="gaussian"),
+        "numerics_explorer": evaluate_matrix_and_quadrature(),
     }
+

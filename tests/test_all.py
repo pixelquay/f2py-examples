@@ -158,6 +158,43 @@ def test_fastapi_workbench_endpoints():
     assert exp_resp.status_code == 200
     assert "heat_pde" in exp_resp.json()
 
+    num_f = client.post(
+        "/api/v1/numerics/explore",
+        json={
+            "matrix_preset": "spd_stiffness",
+            "order_mode": "F",
+            "integrand": "poly_quartic",
+            "points": 31,
+        },
+    )
+    assert num_f.status_code == 200
+    num_f_data = num_f.json()
+    assert num_f_data["matrix"]["f_contiguous"] is True
+    assert num_f_data["matrix"]["zero_copy_pass"] is True
+    assert num_f_data["matrix"]["strides_bytes"] == [8, 24]
+    assert num_f_data["matrix"]["max_abs_err_vs_blas"] < 1e-13
+    assert num_f_data["quadrature"]["exact_value"] == approx(206.0 / 15.0)
+    assert num_f_data["quadrature"]["simpson_abs_error"] < 1e-5
+    assert num_f_data["quadrature"]["accuracy_gain_x"] > 100.0
+
+    num_c = client.post(
+        "/api/v1/numerics/explore",
+        json={
+            "matrix_preset": "hilbert_3x3",
+            "order_mode": "C",
+            "integrand": "exp_unit",
+            "points": 51,
+        },
+    )
+    assert num_c.status_code == 200
+    num_c_data = num_c.json()
+    assert num_c_data["matrix"]["f_contiguous"] is False
+    assert num_c_data["matrix"]["zero_copy_pass"] is False
+    assert num_c_data["matrix"]["strides_bytes"] == [24, 8]
+    assert num_c_data["quadrature"]["exact_value"] == approx(np.e - 1.0)
+
+
     index_page = client.get("/")
     assert index_page.status_code == 200
     assert "f2py Workbench" in index_page.text
+

@@ -908,6 +908,96 @@
     }
   }
 
+  // Phase 9: Column-Major Matrix & Simpson 1/3 Quadrature Explorer
+  let activeMatrixPreset = "rotation_scale";
+  let activeMatrixOrder = "F";
+  let activeQuadFunc = "sin_pi";
+
+  async function runNumericsExplorer(notify = false) {
+    const ptsInput = document.getElementById("quad-points-input");
+    const points = Math.max(11, Math.min(501, Number(ptsInput?.value || 101)));
+
+    try {
+      const resp = await fetch("/api/v1/numerics/explore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matrix_preset: activeMatrixPreset,
+          order_mode: activeMatrixOrder,
+          integrand: activeQuadFunc,
+          points,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderNumericsExplorer(data);
+      if (notify) {
+        showToast(`Evaluated ${data.matrix.title} & ${data.quadrature.label}`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderNumericsExplorer(data) {
+    if (!data || !data.matrix || !data.quadrature) return;
+    const { matrix, quadrature } = data;
+
+    const matSub = document.getElementById("mat-preset-subtitle");
+    const matBadge = document.getElementById("mat-abi-badge");
+    const matStrides = document.getElementById("mat-strides-val");
+    const matCond = document.getElementById("mat-cond-val");
+    const matErr = document.getElementById("mat-blas-err");
+    const matPre = document.getElementById("mat-output-pre");
+
+    if (matSub) matSub.textContent = matrix.title;
+    if (matBadge) {
+      matBadge.className = `status-badge ${matrix.f_contiguous ? "status-success" : "status-warning"}`;
+      matBadge.textContent = matrix.f_contiguous ? "Zero-Copy (order='F')" : "Implicit Copy (order='C')";
+    }
+    if (matStrides) {
+      matStrides.textContent = `(${matrix.strides_bytes.join(", ")}) bytes • F_CONTIGUOUS=${matrix.f_contiguous}`;
+    }
+    if (matCond) {
+      matCond.textContent = `κ=${matrix.condition_number_a} • ||C||=${matrix.frobenius_norm_c} • det(C)=${matrix.determinant_c}`;
+    }
+    if (matErr) {
+      matErr.textContent = `max |F90 − BLAS| = ${Number(matrix.max_abs_err_vs_blas).toExponential(1)}`;
+    }
+    if (matPre && Array.isArray(matrix.matrix_c)) {
+      const formattedRows = matrix.matrix_c.map(
+        (row) => `  [ ${row.map((v) => v.toFixed(5).padStart(9, " ")).join(", ")} ]`
+      );
+      matPre.textContent = `[\n${formattedRows.join(",\n")}\n]`;
+    }
+
+    const quadSub = document.getElementById("quad-func-subtitle");
+    const quadBadge = document.getElementById("quad-gain-badge");
+    const quadDx = document.getElementById("quad-dx-display");
+    const quadExact = document.getElementById("quad-exact-val");
+    const quadSimp = document.getElementById("quad-simpson-val");
+    const quadTrap = document.getElementById("quad-trapz-val");
+
+    if (quadSub) {
+      quadSub.textContent = `${quadrature.label} (N=${quadrature.points} nodes)`;
+    }
+    if (quadBadge) {
+      quadBadge.textContent = `${quadrature.accuracy_gain_x}x More Accurate`;
+    }
+    if (quadDx) {
+      quadDx.textContent = String(quadrature.dx);
+    }
+    if (quadExact) {
+      quadExact.textContent = Number(quadrature.exact_value).toFixed(15);
+    }
+    if (quadSimp) {
+      quadSimp.textContent = `${Number(quadrature.simpson_value).toFixed(15)} (|err| = ${Number(quadrature.simpson_abs_error).toExponential(2)})`;
+    }
+    if (quadTrap) {
+      quadTrap.textContent = `${Number(quadrature.trapezoid_value).toFixed(15)} (|err| = ${Number(quadrature.trapezoid_abs_error).toExponential(2)})`;
+    }
+  }
+
   // Bottom Sheet Modal Logic (Mobile #5 & #6)
   function openPresetSheet() {
     const backdrop = document.getElementById("preset-sheet-backdrop");
@@ -1427,6 +1517,42 @@
       });
     });
 
+    // Phase 9: Matrix & Quadrature Explorer Listeners
+    document.getElementById("run-quad-btn")?.addEventListener("click", () => runNumericsExplorer(true));
+    document.querySelectorAll("[data-mat-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeMatrixPreset = btn.getAttribute("data-mat-preset") || "rotation_scale";
+        document.querySelectorAll("[data-mat-preset]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runNumericsExplorer(true);
+      });
+    });
+    document.querySelectorAll("[data-mat-order]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeMatrixOrder = btn.getAttribute("data-mat-order") || "F";
+        document.querySelectorAll("[data-mat-order]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runNumericsExplorer(true);
+      });
+    });
+    document.querySelectorAll("[data-quad-func]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeQuadFunc = btn.getAttribute("data-quad-func") || "sin_pi";
+        document.querySelectorAll("[data-quad-func]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runNumericsExplorer(true);
+      });
+    });
+
     // Load initial API state
     try {
       const [healthResp, kernelsResp, compResp] = await Promise.all([
@@ -1467,6 +1593,7 @@
       loadPresets(),
       runPdeSimulation(false),
       runLiveBenchmark(false),
+      runNumericsExplorer(false),
     ]);
   }
 
