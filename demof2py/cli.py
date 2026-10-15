@@ -10,7 +10,7 @@ from typing import List, Optional
 
 import uvicorn
 
-from .auditor import audit_fortran_source, load_project_presets
+from .auditor import audit_fortran_source, load_project_presets, verify_with_gfortran
 from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
@@ -68,6 +68,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
+    audit_p.add_argument("--compile-check", action="store_true", help="Run gfortran -fsyntax-only verification")
 
     args = parser.parse_args(argv)
 
@@ -121,6 +122,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"=== {res['filename']} [{res['overall_label']}] ===")
             for f in res["findings"]:
                 print(f"  Line {f['line']} ({f['severity'].upper()}): {f['title']}")
+            if args.compile_check:
+                c_res = verify_with_gfortran(preset["code"], preset["filename"])
+                print(f"  [{c_res['status_label']}] {c_res['command']}")
         return 0
 
     # Default or 'demo'
