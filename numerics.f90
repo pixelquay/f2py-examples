@@ -4,7 +4,7 @@ module fortnumerics
   use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64
   implicit none
   private
-  public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare
+  public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
 
 contains
 
@@ -119,4 +119,90 @@ contains
     cancel_err = max(abs(r1_naive - r1_stable), abs(r2_naive - r2_stable))
   end subroutine QuadraticRootsCompare
 
+
+  subroutine Rk4HarmonicStep(steps, dt, omega0, zeta, x0, v0, x_traj, v_traj, final_energy)
+    !! 4th-order Runge-Kutta (RK4) integrator for the damped harmonic oscillator:
+    !! dx/dt = v, dv/dt = -2*zeta*omega0*v - (omega0^2)*x
+    integer, intent(in) :: steps
+    real(dp), intent(in) :: dt, omega0, zeta, x0, v0
+    real(dp), intent(out) :: x_traj(steps + 1), v_traj(steps + 1)
+    real(dp), intent(out) :: final_energy
+    real(dp) :: x, v, w2, c_damp
+    real(dp) :: kx1, kv1, kx2, kv2, kx3, kv3, kx4, kv4
+    integer :: s
+
+    w2 = omega0 * omega0
+    c_damp = 2.0_dp * zeta * omega0
+    x = x0
+    v = v0
+    x_traj(1) = x
+    v_traj(1) = v
+
+    do s = 1, steps
+      kx1 = v
+      kv1 = -c_damp * v - w2 * x
+
+      kx2 = v + 0.5_dp * dt * kv1
+      kv2 = -c_damp * kx2 - w2 * (x + 0.5_dp * dt * kx1)
+
+      kx3 = v + 0.5_dp * dt * kv2
+      kv3 = -c_damp * kx3 - w2 * (x + 0.5_dp * dt * kx2)
+
+      kx4 = v + dt * kv3
+      kv4 = -c_damp * kx4 - w2 * (x + dt * kx3)
+
+      x = x + (dt / 6.0_dp) * (kx1 + 2.0_dp * kx2 + 2.0_dp * kx3 + kx4)
+      v = v + (dt / 6.0_dp) * (kv1 + 2.0_dp * kv2 + 2.0_dp * kv3 + kv4)
+
+      x_traj(s + 1) = x
+      v_traj(s + 1) = v
+    end do
+
+    final_energy = 0.5_dp * (v * v + w2 * x * x)
+  end subroutine Rk4HarmonicStep
+
+
+  subroutine JacobiPoisson2D(n, iterations, rhs, u_out, max_residual, l2_norm)
+    !! 2D Poisson PDE solver (-Laplacian(u) = rhs) on an n x n unit square grid
+    !! using Jacobi 5-point finite-difference relaxation in column-major order.
+    integer, intent(in) :: n, iterations
+    real(dp), intent(in) :: rhs(n, n)
+    real(dp), intent(out) :: u_out(n, n)
+    real(dp), intent(out) :: max_residual, l2_norm
+    real(dp) :: u_curr(n, n), u_next(n, n), h2, res_ij
+    integer :: i, j, it
+
+    h2 = (1.0_dp / real(max(1, n - 1), dp)) ** 2
+    u_curr = 0.0_dp
+    u_next = 0.0_dp
+
+    do it = 1, iterations
+      do j = 2, n - 1
+        do i = 2, n - 1
+          u_next(i, j) = 0.25_dp * ( &
+            u_curr(i - 1, j) + u_curr(i + 1, j) + &
+            u_curr(i, j - 1) + u_curr(i, j + 1) + &
+            h2 * rhs(i, j) &
+          )
+        end do
+      end do
+      u_curr = u_next
+    end do
+
+    u_out = u_curr
+    max_residual = 0.0_dp
+    do j = 2, n - 1
+      do i = 2, n - 1
+        res_ij = abs( &
+          (4.0_dp * u_out(i, j) - u_out(i - 1, j) - u_out(i + 1, j) - u_out(i, j - 1) - u_out(i, j + 1)) / h2 &
+          - rhs(i, j) &
+        )
+        if (res_ij > max_residual) max_residual = res_ij
+      end do
+    end do
+
+    l2_norm = sqrt(sum(u_out * u_out) * h2)
+  end subroutine JacobiPoisson2D
+
 end module fortnumerics
+
