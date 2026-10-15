@@ -16,6 +16,8 @@ from .benchmarks import (
     evaluate_quadratic_cancellation,
     run_performance_benchmark,
     simulate_heat_pde,
+    simulate_poisson_2d,
+    simulate_rk4_oscillator,
 )
 from .kernels import compare_all_intents
 from .precision import run_ieee754_benchmark
@@ -66,6 +68,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     quad_p.add_argument("-b", type=float, default=1.0e8)
     quad_p.add_argument("-c", type=float, default=1.0)
 
+    ode_p = sub.add_parser("ode", help="Run 4th-order Runge-Kutta (`Rk4HarmonicStep`) oscillator simulation")
+    ode_p.add_argument("--steps", type=int, default=120)
+    ode_p.add_argument("--dt", type=float, default=0.05)
+    ode_p.add_argument("--omega0", type=float, default=2.0)
+    ode_p.add_argument("--zeta", type=float, default=0.15)
+
+    pois_p = sub.add_parser("poisson", help="Run 2D Poisson PDE Jacobi relaxation (`JacobiPoisson2D`)")
+    pois_p.add_argument("-n", type=int, default=15)
+    pois_p.add_argument("--iterations", type=int, default=80)
+    pois_p.add_argument("--source", choices=["dipole", "central_charge", "quadrupole"], default="dipole")
+
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
     audit_p.add_argument("--compile-check", action="store_true", help="Run gfortran -fsyntax-only verification")
@@ -111,6 +124,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             json.dumps(
                 evaluate_quadratic_cancellation(a=args.a, b=args.b, c=args.c),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "ode":
+        print(
+            json.dumps(
+                simulate_rk4_oscillator(
+                    steps=args.steps, dt=args.dt, omega0=args.omega0, zeta=args.zeta
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "poisson":
+        print(
+            json.dumps(
+                simulate_poisson_2d(n=args.n, iterations=args.iterations, source_type=args.source),
                 indent=2,
             )
         )

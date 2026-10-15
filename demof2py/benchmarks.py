@@ -455,6 +455,112 @@ def evaluate_quadratic_cancellation(
     }
 
 
+def simulate_rk4_oscillator(
+    steps: int = 120,
+    dt: float = 0.05,
+    omega0: float = 2.0,
+    zeta: float = 0.15,
+    x0: float = 1.0,
+    v0: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 4th-order Runge-Kutta (`Rk4HarmonicStep`) damped
+    harmonic oscillator integrator and return displacement/velocity trajectories.
+    """
+    steps = max(20, min(int(steps), 400))
+    dt = max(0.005, min(float(dt), 0.2))
+    omega0 = max(0.2, min(float(omega0), 10.0))
+    zeta = max(0.0, min(float(zeta), 2.5))
+
+    x_traj, v_traj, final_energy = fortnumerics.rk4harmonicstep(
+        steps, dt, omega0, zeta, x0, v0
+    )
+    initial_energy = float(0.5 * (v0 * v0 + (omega0 * omega0) * (x0 * x0)))
+    energy_ratio = round(final_energy / max(initial_energy, 1e-15), 6)
+
+    if zeta < 1e-6:
+        regime_label = "Undamped Harmonic (Energy Conserved)"
+        status_type = "success"
+    elif zeta < 1.0 - 1e-6:
+        regime_label = f"Underdamped Oscillatory (ζ = {zeta:.2f})"
+        status_type = "info"
+    elif abs(zeta - 1.0) <= 1e-6:
+        regime_label = "Critically Damped (ζ = 1.00)"
+        status_type = "warning"
+    else:
+        regime_label = f"Overdamped Aperiodic (ζ = {zeta:.2f})"
+        status_type = "warning"
+
+    t_grid = [round(i * dt, 4) for i in range(steps + 1)]
+    return {
+        "steps": steps,
+        "dt": dt,
+        "omega0": omega0,
+        "zeta": zeta,
+        "regime_label": regime_label,
+        "status_type": status_type,
+        "initial_energy": round(initial_energy, 6),
+        "final_energy": round(final_energy, 6),
+        "energy_ratio": energy_ratio,
+        "peak_abs_x": round(float(np.max(np.abs(x_traj))), 6),
+        "peak_abs_v": round(float(np.max(np.abs(v_traj))), 6),
+        "t_grid": t_grid,
+        "x_traj": [round(float(v), 6) for v in x_traj],
+        "v_traj": [round(float(v), 6) for v in v_traj],
+    }
+
+
+def simulate_poisson_2d(
+    n: int = 15,
+    iterations: int = 80,
+    source_type: str = "dipole",
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 2D Poisson PDE Jacobi relaxation solver (`JacobiPoisson2D`)
+    on an n x n column-major grid (`order='F'`).
+    """
+    n = max(9, min(int(n), 31))
+    if n % 2 == 0:
+        n += 1
+    iterations = max(5, min(int(iterations), 300))
+
+    rhs = np.zeros((n, n), dtype=np.float64, order="F")
+    mid = n // 2
+    quarter = max(2, n // 4)
+
+    if source_type == "central_charge":
+        source_label = "Central Point Charge (+100)"
+        rhs[mid, mid] = 100.0
+    elif source_type == "quadrupole":
+        source_label = "Symmetric Quadrupole (+80 / −80)"
+        rhs[quarter, quarter] = 80.0
+        rhs[n - 1 - quarter, n - 1 - quarter] = 80.0
+        rhs[quarter, n - 1 - quarter] = -80.0
+        rhs[n - 1 - quarter, quarter] = -80.0
+    else:
+        source_type = "dipole"
+        source_label = "Electric Dipole Pair (+90 / −90)"
+        rhs[mid, quarter] = 90.0
+        rhs[mid, n - 1 - quarter] = -90.0
+
+    u_out, max_residual, l2_norm = fortnumerics.jacobipoisson2d(iterations, rhs)
+    max_abs_u = float(np.max(np.abs(u_out)))
+
+    return {
+        "n": n,
+        "iterations": iterations,
+        "source_type": source_type,
+        "source_label": source_label,
+        "f_contiguous": bool(u_out.flags["F_CONTIGUOUS"]),
+        "strides_bytes": list(u_out.strides),
+        "max_residual": round(max_residual, 6),
+        "l2_norm": round(l2_norm, 6),
+        "max_abs_potential": round(max_abs_u, 6),
+        "center_potential": round(float(u_out[mid, mid]), 6),
+        "grid_u": [[round(float(val), 5) for val in row] for row in u_out],
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -466,6 +572,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "intents": "--intents",
         "pde": "--pde",
         "linalg": "--linalg",
+        "ode": "--ode",
+        "poisson": "--poisson",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -494,14 +602,17 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
 
     # Deterministic fallback if Meson builddir binary is not present in container
     q_res = evaluate_quadratic_cancellation(1.0, 1.0e8, 1.0)
+    ode_res = simulate_rk4_oscillator()
+    pois_res = simulate_poisson_2d()
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v2.2.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v3.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
-        f"  Naive Err: |r2_naive - r2_stable| = {q_res['abs_cancel_error']:.6e}\n"
+        f"  RK4 ODE  : E_final = {ode_res['final_energy']:.6f}, peak |x| = {ode_res['peak_abs_x']:.6f}\n"
+        f"  Poisson2D: ||r||_inf = {pois_res['max_residual']:.6e}, ||u||_L2 = {pois_res['l2_norm']:.6f}\n"
         "========================================================================"
     )
     return {
@@ -520,7 +631,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "2.2.0",
+        "version": "3.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -528,6 +639,9 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "heat_pde": simulate_heat_pde(n=41, steps=35, alpha=0.01, pulse_type="gaussian"),
         "numerics_explorer": evaluate_matrix_and_quadrature(),
         "quadratic_cancellation": evaluate_quadratic_cancellation(),
+        "rk4_oscillator": simulate_rk4_oscillator(),
+        "poisson_2d": simulate_poisson_2d(),
     }
+
 
 

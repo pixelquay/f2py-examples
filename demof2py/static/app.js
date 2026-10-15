@@ -1091,6 +1091,162 @@
     }
   }
 
+  // Phase 13: RK4 Harmonic Oscillator, 2D Poisson PDE & gfortran Compiler Verifier
+  let activeRk4Zeta = 0.15;
+  let activePoissonSource = "dipole";
+
+  async function runRk4Explorer(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/ode/rk4", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          steps: 120,
+          dt: 0.05,
+          omega0: 2.0,
+          zeta: activeRk4Zeta,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderRk4Explorer(data);
+      if (notify) {
+        showToast(`Simulated RK4 Oscillator (${data.regime_label})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderRk4Explorer(data) {
+    if (!data) return;
+    const badge = document.getElementById("rk4-regime-badge");
+    const energyEl = document.getElementById("rk4-energy-val");
+    const peaksEl = document.getElementById("rk4-peaks-val");
+    const svgEl = document.getElementById("rk4-svg-chart");
+
+    if (badge) {
+      badge.className = `status-badge status-${data.status_type || "info"}`;
+      badge.textContent = data.regime_label || "";
+    }
+    if (energyEl) {
+      const pct = (Number(data.energy_ratio) * 100.0).toFixed(1);
+      energyEl.textContent = `E₀ = ${Number(data.initial_energy).toFixed(4)} • E(T) = ${Number(data.final_energy).toFixed(4)} (${pct}% retained)`;
+    }
+    if (peaksEl) {
+      peaksEl.textContent = `|x|max = ${Number(data.peak_abs_x).toFixed(4)} • |v|max = ${Number(data.peak_abs_v).toFixed(4)}`;
+    }
+    if (svgEl && Array.isArray(data.x_traj) && Array.isArray(data.v_traj)) {
+      const w = 600;
+      const h = 180;
+      const padX = 24;
+      const padY = 20;
+      const n = data.x_traj.length;
+      const maxVal = Math.max(1.0, Number(data.peak_abs_x), Number(data.peak_abs_v));
+
+      const mapPts = (arr) =>
+        arr
+          .map((val, idx) => {
+            const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+            const py = h / 2 - (val / maxVal) * (h / 2 - padY);
+            return `${px.toFixed(1)},${py.toFixed(1)}`;
+          })
+          .join(" ");
+
+      const xPts = mapPts(data.x_traj);
+      const vPts = mapPts(data.v_traj);
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h / 2}" x2="${w - padX}" y2="${h / 2}" stroke="var(--border-subtle)" stroke-dasharray="4 4" stroke-width="1" />
+        <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.25" points="${xPts}" />
+        <polyline fill="none" stroke="var(--status-success-fg)" stroke-width="1.75" stroke-dasharray="5 3" points="${vPts}" />
+      `;
+    }
+  }
+
+  async function runPoisson2DExplorer(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/pde/poisson2d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n: 15,
+          iterations: 80,
+          source_type: activePoissonSource,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderPoisson2DExplorer(data);
+      if (notify) {
+        showToast(`Solved 2D Poisson PDE (${data.source_label})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderPoisson2DExplorer(data) {
+    if (!data) return;
+    const badge = document.getElementById("poisson-abi-badge");
+    const resEl = document.getElementById("poisson-res-val");
+    const normEl = document.getElementById("poisson-norm-val");
+    const srcLabel = document.getElementById("poisson-source-label");
+    const slicePre = document.getElementById("poisson-slice-pre");
+
+    if (badge) {
+      badge.textContent = `F_CONTIGUOUS (${data.strides_bytes.join(", ")})B`;
+    }
+    if (resEl) {
+      resEl.textContent = Number(data.max_residual).toFixed(6);
+    }
+    if (normEl) {
+      normEl.textContent = `||u||₂ = ${Number(data.l2_norm).toFixed(6)} • max|u| = ${Number(data.max_abs_potential).toFixed(6)}`;
+    }
+    if (srcLabel) {
+      srcLabel.textContent = data.source_label || "";
+    }
+    if (slicePre && Array.isArray(data.grid_u) && data.grid_u.length > 0) {
+      const mid = Math.floor(data.grid_u.length / 2);
+      const midRow = data.grid_u[mid] || [];
+      slicePre.textContent = `[ ${midRow.map((v) => v.toFixed(4)).join(", ")} ]`;
+    }
+  }
+
+  async function runGfortranVerify(notify = false) {
+    const code = document.getElementById("audit-code-textarea")?.value || "";
+    const filename = document.getElementById("audit-filename-input")?.value || "snippet.f90";
+    if (!code.trim()) return;
+
+    try {
+      const resp = await fetch("/api/v1/diagnostics/compile-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          filename,
+          cmap_mode: state.auditorCmapMode,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const badge = document.getElementById("gfortran-status-badge");
+      const outPre = document.getElementById("audit-gfortran-output");
+      if (badge) {
+        badge.className = `status-badge status-${data.status_type || "info"}`;
+        badge.textContent = data.status_label || "Verified";
+      }
+      if (outPre) {
+        outPre.textContent = data.compiler_output || "";
+      }
+      if (notify) {
+        showToast(`${data.status_label} (${filename})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+
 
   // Bottom Sheet Modal Logic (Mobile #5 & #6)
   function openPresetSheet() {
@@ -1674,6 +1830,33 @@
     });
     document.getElementById("run-native-cli-btn")?.addEventListener("click", () => runNativeFortranCli(true));
 
+    // Phase 13: RK4 Oscillator, 2D Poisson PDE & gfortran Verifier controls
+    document.querySelectorAll("[data-rk4-zeta]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeRk4Zeta = Number(btn.getAttribute("data-rk4-zeta") || 0.15);
+        document.querySelectorAll("[data-rk4-zeta]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runRk4Explorer(true);
+      });
+    });
+
+    document.querySelectorAll("[data-poisson-source]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activePoissonSource = btn.getAttribute("data-poisson-source") || "dipole";
+        document.querySelectorAll("[data-poisson-source]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runPoisson2DExplorer(true);
+      });
+    });
+
+    document.getElementById("verify-gfortran-btn")?.addEventListener("click", () => runGfortranVerify(true));
+
     // Load initial API state
     try {
       const [healthResp, kernelsResp, compResp] = await Promise.all([
@@ -1717,7 +1900,10 @@
       runNumericsExplorer(false),
       runQuadraticExplorer(false),
       runNativeFortranCli(false),
+      runRk4Explorer(false),
+      runPoisson2DExplorer(false),
     ]);
+    await runGfortranVerify(false);
   }
 
   if (document.readyState === "loading") {
@@ -1726,3 +1912,4 @@
     init();
   }
 })();
+
