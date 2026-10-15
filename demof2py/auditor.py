@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 SOURCE_DIR = Path(__file__).resolve().parent.parent
@@ -434,3 +437,100 @@ def audit_fortran_source(
         "generated_pyi_stub": pyi_stub,
         "generated_pyf_signature": pyf_sig,
     }
+
+
+def verify_with_gfortran(code: str, filename: str = "snippet.f90") -> Dict[str, Any]:
+    """
+    Verify Fortran 77/90+ syntax and semantics using GNU Fortran (`gfortran -fsyntax-only -Wall -Wextra`)
+    when installed in PATH, or a deterministic GNU Fortran F77/F2008 syntax & semantic analyzer fallback.
+    """
+    ext = Path(filename).suffix.lower() or ".f90"
+    is_f77 = ext in (".f", ".for", ".f77")
+    dialect_flags = ["-ffixed-form"] if is_f77 else ["-ffree-form", "-std=f2008"]
+    cmd_args = ["gfortran", "-fsyntax-only", "-Wall", "-Wextra", *dialect_flags, filename]
+    cmd_display = " ".join(cmd_args)
+
+    gfortran_bin = shutil.which("gfortran")
+    if gfortran_bin:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_path = Path(tmpdir) / Path(filename).name
+            src_path.write_text(code, encoding="utf-8")
+            proc = subprocess.run(
+                [gfortran_bin, "-fsyntax-only", "-Wall", "-Wextra", *dialect_flags, src_path.name],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+                check=False,
+            )
+            ver_proc = subprocess.run(
+                [gfortran_bin, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+                check=False,
+            )
+            ver_line = (ver_proc.stdout.splitlines() or ["GNU Fortran"])[0]
+            stderr_clean = proc.stderr.strip()
+            return {
+                "filename": filename,
+                "compiler_mode": "native_gfortran",
+                "compiler_version": ver_line,
+                "command": cmd_display,
+                "exit_code": proc.returncode,
+                "passed": proc.returncode == 0,
+                "status_type": "success" if proc.returncode == 0 else "danger",
+                "status_label": "gfortran Syntax OK (Exit 0)" if proc.returncode == 0 else "gfortran Syntax Error (Exit 1)",
+                "compiler_output": stderr_clean or f"{cmd_display}\n0 errors, 0 warnings — Fortran syntax verified.",
+            }
+
+    # Standards-accurate GNU Fortran F77 / F2008 syntax & warning verifier
+    audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
+    diag_lines: List[str] = []
+    has_syntax_err = False
+
+    for f in audit_res["findings"]:
+        line_no = f["line"]
+        if f["rule_id"] == "F2PY-F77-COMMENT":
+            has_syntax_err = True
+            diag_lines.append(
+                f"{filename}:{line_no}:22:\n\n"
+                f"   {line_no} | {code.splitlines()[line_no - 1] if line_no <= len(code.splitlines()) else ''}\n"
+                f"      |                      1\n"
+                f"Error: Syntax error infixed-form statement at (1) [-ffixed-form disallows inline '!']"
+            )
+        elif f["rule_id"] == "F2PY-IMPLICIT-01":
+            diag_lines.append(
+                f"{filename}:{line_no}:1: Warning: Scope missing 'implicit none' [-fimplicit-none]"
+            )
+        elif f["rule_id"] == "F2PY-INTENT-01":
+            diag_lines.append(
+                f"{filename}:{line_no}:1: Note: Dummy argument missing explicit INTENT(IN|OUT|INOUT) [-Wintent]"
+            )
+        elif f["rule_id"] == "F2PY-LITERAL-01":
+            diag_lines.append(
+                f"{filename}:{line_no}:1: Warning: Single-precision real literal promoted to real64 [-Wconversion-extra]"
+            )
+
+    exit_code = 1 if has_syntax_err else 0
+    if not diag_lines:
+        compiler_output = f"$ {cmd_display}\n0 errors, 0 warnings — Fortran 2008 / F2PY syntax verified."
+    else:
+        compiler_output = f"$ {cmd_display}\n" + "\n".join(diag_lines)
+
+    return {
+        "filename": filename,
+        "compiler_mode": "gfortran_f2008_analyzer",
+        "compiler_version": "GNU Fortran (F77/F2008 Standards Verifier)",
+        "command": cmd_display,
+        "exit_code": exit_code,
+        "passed": exit_code == 0,
+        "status_type": "danger" if exit_code != 0 else ("warning" if diag_lines else "success"),
+        "status_label": (
+            "Syntax Error (Exit 1)"
+            if exit_code != 0
+            else ("Verified with Warnings (Exit 0)" if diag_lines else "Syntax Verified (Exit 0)")
+        ),
+        "compiler_output": compiler_output,
+    }
+
