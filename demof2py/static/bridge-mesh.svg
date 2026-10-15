@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1200" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#091326"/>
+      <stop offset="45%" stop-color="#0F2547"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <radialGradient id="glowCyan" cx="78%" cy="42%" r="48%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.45"/>
+      <stop offset="55%" stop-color="#2563EB" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#091326" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowEmerald" cx="62%" cy="75%" r="38%">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#091326" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="meshStroke" x1="420" y1="60" x2="1150" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.85"/>
+      <stop offset="50%" stop-color="#38BDF8" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0.85"/>
+    </linearGradient>
+    <pattern id="techGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" stroke-width="0.75" stroke-opacity="0.45"/>
+    </pattern>
+  </defs>
+
+  <!-- Base Canvas -->
+  <rect width="1200" height="520" fill="url(#bgGrad)"/>
+  <rect width="1200" height="520" fill="url(#techGrid)"/>
+  <rect width="1200" height="520" fill="url(#glowCyan)"/>
+  <rect width="1200" height="520" fill="url(#glowEmerald)"/>
+
+  <!-- 3D Numerical Tensor & Finite Element Surface Mesh (Right Side Visual Focal Area) -->
+  <g opacity="0.92" transform="translate(460, 28)">
+    <!-- Isometric Wave Surface Lines -->
+    <path d="M80 330 Q 210 180, 350 250 T 640 160" stroke="url(#meshStroke)" stroke-width="2.5" fill="none"/>
+    <path d="M60 365 Q 200 210, 345 285 T 655 195" stroke="url(#meshStroke)" stroke-width="2.2" fill="none" opacity="0.85"/>
+    <path d="M40 400 Q 190 245, 340 320 T 670 230" stroke="url(#meshStroke)" stroke-width="2" fill="none" opacity="0.72"/>
+    <path d="M100 295 Q 225 145, 360 215 T 625 125" stroke="url(#meshStroke)" stroke-width="2.2" fill="none" opacity="0.85"/>
+    <path d="M125 260 Q 245 110, 375 180 T 610 90" stroke="url(#meshStroke)" stroke-width="1.8" fill="none" opacity="0.68"/>
+
+    <!-- Cross-ribs of computational mesh -->
+    <path d="M125 260 L100 295 L80 330 L60 365 L40 400" stroke="#38BDF8" stroke-width="1.4" opacity="0.6"/>
+    <path d="M235 195 L215 230 L195 265 L175 300 L155 335" stroke="#38BDF8" stroke-width="1.4" opacity="0.6"/>
+    <path d="M375 180 L360 215 L350 250 L345 285 L340 320" stroke="#38BDF8" stroke-width="1.6" opacity="0.75"/>
+    <path d="M495 140 L490 175 L488 210 L490 245 L495 280" stroke="#34D399" stroke-width="1.6" opacity="0.75"/>
+    <path d="M610 90 L625 125 L640 160 L655 195 L670 230" stroke="#34D399" stroke-width="1.8" opacity="0.8"/>
+
+    <!-- Active Mesh Nodes -->
+    <circle cx="195" cy="265" r="5.5" fill="#38BDF8" stroke="#E0F2FE" stroke-width="2"/>
+    <circle cx="350" cy="250" r="6.5" fill="#60A5FA" stroke="#EFF6FF" stroke-width="2"/>
+    <circle cx="488" cy="210" r="6.5" fill="#34D399" stroke="#ECFDF5" stroke-width="2"/>
+    <circle cx="640" cy="160" r="7" fill="#10B981" stroke="#ECFDF5" stroke-width="2.5"/>
+    <circle cx="360" cy="215" r="4.5" fill="#93C5FD"/>
+    <circle cx="490" cy="175" r="4.5" fill="#6EE7B7"/>
+
+    <!-- IEEE 754 64-Bit Register Callout Card in Artwork -->
+    <g transform="translate(270, 38)">
+      <rect x="0" y="0" width="380" height="78" rx="10" fill="#0F172A" fill-opacity="0.86" stroke="#38BDF8" stroke-opacity="0.55" stroke-width="1.5"/>
+      <text x="18" y="26" fill="#93C5FD" font-family="monospace" font-size="13" font-weight="bold">IEEE 754 binary64 • real(real64) =&gt; double</text>
+      <!-- Sign / Exponent / Mantissa bit blocks -->
+      <rect x="18" y="38" width="24" height="24" rx="4" fill="#F43F5E" fill-opacity="0.85"/>
+      <text x="26" y="55" fill="#FFFFFF" font-family="monospace" font-size="12" font-weight="bold">S</text>
+      <rect x="48" y="38" width="84" height="24" rx="4" fill="#3B82F6" fill-opacity="0.85"/>
+      <text x="62" y="55" fill="#FFFFFF" font-family="monospace" font-size="12" font-weight="bold">11-bit exp</text>
+      <rect x="138" y="38" width="224" height="24" rx="4" fill="#10B981" fill-opacity="0.85"/>
+      <text x="165" y="55" fill="#FFFFFF" font-family="monospace" font-size="12" font-weight="bold">53-bit significand (ε=2⁻⁵²)</text>
+    </g>
+
+    <!-- C-ABI Pointer Bridge Callout in Artwork -->
+    <g transform="translate(290, 342)">
+      <rect x="0" y="0" width="360" height="68" rx="10" fill="#0F172A" fill-opacity="0.86" stroke="#34D399" stroke-opacity="0.55" stroke-width="1.5"/>
+      <text x="18" y="27" fill="#6EE7B7" font-family="monospace" font-size="13" font-weight="bold">Zero-Copy C/Fortran Contiguous Buffer</text>
+      <text x="18" y="49" fill="#E2E8F0" font-family="monospace" font-size="12">ndarray.data (0x7ff8a4) ⟷ real(dp), intent(inout)</text>
+    </g>
+  </g>
+</svg>
