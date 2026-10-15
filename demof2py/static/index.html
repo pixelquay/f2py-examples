@@ -284,7 +284,7 @@
               </span>
             </div>
             <p class="card-body-text">
-              Verify mantissa bits ($\epsilon = 2^{-(p-1)}$) across half, single, double, and quadruple precision and prevent silent 32-bit truncation.
+              Verify mantissa bits (&epsilon; = 2<sup>&minus;(p&minus;1)</sup>) across half, single, double, and quadruple precision and prevent silent 32-bit truncation.
             </p>
             <div class="code-preview-box mono-text">
               <div class="code-line">dict(real=dict(sp=<span class="code-str">'float'</span>, dp=<span class="code-str">'double'</span>,</div>
@@ -689,7 +689,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
           <div>
             <h2 class="card-title">IEEE 754 Significand (Mantissa) Precision &amp; Machine Epsilon</h2>
             <p class="section-subtitle">
-              Iterative computation of mantissa bits ($p$) where $1 + 2^{-(p-1)} \neq 1$, matching <code>floatPrecision.f90</code> and <code>floatPrecision.py</code>.
+              Iterative computation of mantissa bits (<i>p</i>) where 1 + 2<sup>&minus;(p&minus;1)</sup> &ne; 1, matching <code>floatPrecision.f90</code> and <code>floatPrecision.py</code>.
             </p>
           </div>
           <span class="meta-chip mono-text">Scale: 0 to 128 Bits</span>
@@ -706,7 +706,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <span>96 bits</span>
               <span>128 bits</span>
             </div>
-            <span>Machine Epsilon ($\epsilon$)</span>
+            <span>Machine Epsilon (&epsilon;)</span>
           </div>
           <div id="precision-bars-container" class="chart-rows-group"></div>
         </div>
@@ -732,7 +732,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
           <div>
             <h2 class="section-title">Why <code>.f2py_f2cmap</code> &amp; Kind Suffixes Matter (<code>badprec.f90</code>)</h2>
             <p class="section-subtitle">
-              Reference $\pi = 3.14159265358979323846$. Unmapped kinds or single-precision literals lose 9 decimal digits of accuracy.
+              Reference &pi; = 3.14159265358979323846. Unmapped kinds or single-precision literals lose 9 decimal digits of accuracy.
             </p>
           </div>
         </div>

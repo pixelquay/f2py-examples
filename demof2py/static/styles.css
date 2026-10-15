@@ -186,7 +186,7 @@ h2[tabindex="-1"]:focus {
   outline: none;
 }
 
-/* Shared Restrained Focus Policy: Keyboard focus-visible only */
+/* Shared Restrained Focus Policy: Keyboard focus-visible only (via root input-modality class) */
 button:focus,
 input:focus,
 textarea:focus,
@@ -196,14 +196,28 @@ a:focus,
   outline: none;
 }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-a:focus-visible,
-[tabindex="0"]:focus-visible {
+.form-input:focus {
+  border-color: var(--accent-primary);
+}
+
+html.is-keyboard-nav button:focus-visible,
+html.is-keyboard-nav input:focus-visible,
+html.is-keyboard-nav textarea:focus-visible,
+html.is-keyboard-nav select:focus-visible,
+html.is-keyboard-nav a:focus-visible,
+html.is-keyboard-nav [tabindex="0"]:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* Remove duplicate browser-native search cancel icon so only our custom 44px clear button shows */
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 .skip-link {
@@ -2088,6 +2102,20 @@ a:focus-visible,
 
   .hero-overlay-content {
     padding: var(--space-5);
+  }
+
+  .hero-bg-image {
+    object-position: 78% center;
+    opacity: 0.55;
+  }
+
+  .hero-gradient-scrim {
+    background: linear-gradient(
+      180deg,
+      rgba(9, 15, 29, 0.88) 0%,
+      rgba(9, 15, 29, 0.95) 65%,
+      rgba(9, 15, 29, 0.98) 100%
+    );
   }
 
   .hero-title {
