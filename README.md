@@ -69,7 +69,7 @@ However, Windows itself can be more challenging due to inconsistencies in Micros
 See the Windows f2py installation guide and troubleshooting
 [guide](https://www.scivision.dev/f2py-fortran-python-windows/).
 
-## Production Web Workbench, Native Fortran CLI & SDK (`demof2py` v2.2.0)
+## Production Web Workbench, Native Fortran CLI & SDK (`demof2py` v3.0.0)
 
 Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 
@@ -77,16 +77,18 @@ Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 f2py-workbench serve --host 127.0.0.1 --port 8080
 ```
 
-Or run CLI diagnostics, 1D Heat Diffusion PDE simulations, column-major matrix & Simpson quadrature evaluations, catastrophic cancellation root stability analysis, and performance benchmarks directly:
+Or run CLI diagnostics, 1D Heat Diffusion PDE simulations, 4th-order Runge-Kutta (`RK4`) oscillator integration, 2D Poisson PDE Jacobi relaxation, column-major matrix & Simpson quadrature evaluations, catastrophic cancellation root stability analysis, and `gfortran` syntax verification directly:
 
 ```sh
 f2py-workbench demo -x 3 -y 2
 f2py-workbench precision
 f2py-workbench benchmark --workload dot_product --size 5000
 f2py-workbench pde --steps 35 --alpha 0.01 --pulse gaussian
+f2py-workbench ode --steps 120 --zeta 0.15
+f2py-workbench poisson -n 15 --iterations 80 --source dipole
 f2py-workbench numerics --preset spd_stiffness --order F --integrand poly_quartic --points 31
 f2py-workbench quadratic -a 1.0 -b 1e8 -c 1.0
-f2py-workbench audit --cmap modern
+f2py-workbench audit --cmap modern --compile-check
 ```
 
 ### Standalone Native Fortran 2008 CLI (`fortran_workbench`)

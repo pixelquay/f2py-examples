@@ -1158,7 +1158,9 @@
       svgEl.innerHTML = `
         <line x1="${padX}" y1="${h / 2}" x2="${w - padX}" y2="${h / 2}" stroke="var(--border-subtle)" stroke-dasharray="4 4" stroke-width="1" />
         <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.25" points="${xPts}" />
-        <polyline fill="none" stroke="var(--status-success-fg)" stroke-width="1.75" stroke-dasharray="5 3" points="${vPts}" />
+        <polyline fill="none" stroke="var(--success-dot)" stroke-width="1.85" stroke-dasharray="5 3" points="${vPts}" />
+        <text x="${padX + 4}" y="14" fill="var(--accent-primary)" font-size="11" font-family="var(--font-mono)">— x(t) position</text>
+        <text x="${padX + 130}" y="14" fill="var(--success-dot)" font-size="11" font-family="var(--font-mono)">-- v(t) velocity</text>
       `;
     }
   }
