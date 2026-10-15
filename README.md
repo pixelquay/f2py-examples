@@ -68,3 +68,20 @@ However, Windows itself can be more challenging due to inconsistencies in Micros
 
 See the Windows f2py installation guide and troubleshooting
 [guide](https://www.scivision.dev/f2py-fortran-python-windows/).
+
+## Production Web Workbench & CLI (`demof2py` v2.0)
+
+Launch the interactive Fortran–Python Web Workbench and FastAPI service:
+
+```sh
+f2py-workbench serve --host 127.0.0.1 --port 8080
+```
+
+Or run CLI diagnostics and precision benchmarks directly:
+
+```sh
+f2py-workbench demo -x 3 -y 2
+f2py-workbench precision
+f2py-workbench audit
+```
+

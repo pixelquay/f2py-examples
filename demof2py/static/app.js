@@ -285,6 +285,16 @@
       if (!Number.isFinite(xVal) || !Number.isFinite(yVal) || !Number.isFinite(zInitVal)) {
         throw new Error("Scalar operands x, y, and initial z must be valid finite numbers.");
       }
+      if (state.selectedKernelId === "prodinout" && !useNdarray) {
+        if (alertBox && errTitle && errDesc) {
+          errTitle.textContent = "f2py Type & Buffer Guard Triggered";
+          errDesc.textContent =
+            "Passing a plain Python float to an INTENT(INOUT) argument fails in f2py. Wrap the scalar in a 0-D NumPy array: np.array(23456.0).";
+          alertBox.hidden = false;
+          if (errRec) errRec.hidden = false;
+        }
+        return;
+      }
       vecX = parseVectorInput(document.getElementById("input-vec-x")?.value);
       vecY = parseVectorInput(document.getElementById("input-vec-y")?.value);
       if (vecX.length !== vecY.length) {
@@ -844,6 +854,16 @@
   // Initialize Event Listeners & Fetch Initial Data
   async function init() {
     applyTheme(state.theme);
+
+    // Root input-modality tracker for shared focus policy
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Tab" || e.key.startsWith("Arrow")) {
+        document.documentElement.classList.add("is-keyboard-nav");
+      }
+    });
+    document.addEventListener("pointerdown", () => {
+      document.documentElement.classList.remove("is-keyboard-nav");
+    });
 
     // Theme buttons
     document.querySelectorAll("[data-theme-choice]").forEach((btn) => {
