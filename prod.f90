@@ -1,5 +1,6 @@
 module prod
 
+use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64
 implicit none
 
 contains
@@ -43,4 +44,32 @@ prodpure = x*y
 
 End Function
 
+Subroutine ProdVecIntent(n, x, y, z)
+! Element-wise double-precision vector product with explicit INTENT(OUT)
+integer, Intent(In) :: n
+real(dp), Intent(In) :: x(n), y(n)
+real(dp), Intent(Out) :: z(n)
+
+z = x * y
+End Subroutine
+
+Subroutine ProdDotDp(n, x, y, dot_val)
+! Double-precision dot product kernel
+integer, Intent(In) :: n
+real(dp), Intent(In) :: x(n), y(n)
+real(dp), Intent(Out) :: dot_val
+
+dot_val = dot_product(x, y)
+End Subroutine
+
+Subroutine ProdScaleInOut(n, scale_factor, z)
+! In-place array scaling using INTENT(INOUT)
+integer, Intent(In) :: n
+real(dp), Intent(In) :: scale_factor
+real(dp), Intent(InOut) :: z(n)
+
+z = z * scale_factor
+End Subroutine
+
 end module prod
+

@@ -1,2 +1,18 @@
-dict(real= dict(sp='float', dp='double'),
-complex = dict(sp='complex_float',dp="complex_double"))
+dict(
+    real=dict(
+        sp='float',
+        dp='double',
+        qp='long_double',
+        real32='float',
+        real64='double',
+        real128='long_double',
+    ),
+    complex=dict(
+        sp='complex_float',
+        dp='complex_double',
+        qp='complex_long_double',
+        real32='complex_float',
+        real64='complex_double',
+        real128='complex_long_double',
+    ),
+)

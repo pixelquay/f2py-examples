@@ -79,12 +79,14 @@ caveats on Numpy "long double":
 https://docs.scipy.org/doc/numpy-dev/user/basics.types.html#extended-precision
 """
 pq = 0
-q = np.float128(1.0)
+float_ext = getattr(np, "float128", np.longdouble)
+q = float_ext(1.0)
 
-while q != q + np.float128(1):
-    q *= np.float128(2.0)
+while q != q + float_ext(1):
+    q *= float_ext(2.0)
     pq += 1
 
 eps128 = 2 ** (-(pq - 1))
 print("bits of precision for long double", pq)
 print("machine epsilon: long double", eps128)
+
