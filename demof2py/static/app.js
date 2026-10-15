@@ -697,6 +697,7 @@
     const dialectChip = document.getElementById("auditor-dialect-chip");
     const listEl = document.getElementById("audit-findings-list");
     const cmapEl = document.getElementById("audit-recommended-cmap");
+    const pyiEl = document.getElementById("audit-generated-pyi");
     const fileLabel = document.getElementById("auditor-active-file-label");
 
     if (fileLabel) {
@@ -711,6 +712,9 @@
     }
     if (cmapEl) {
       cmapEl.textContent = res.recommended_cmap;
+    }
+    if (pyiEl && res.generated_pyi_stub) {
+      pyiEl.textContent = res.generated_pyi_stub.trim();
     }
     if (!listEl) return;
 
@@ -743,6 +747,164 @@
         `;
       })
       .join("");
+  }
+
+  // 1D Heat Diffusion PDE Simulation & Benchmark Lab (Phase 7)
+  let activePdePulse = "gaussian";
+  let activeBenchWorkload = "dot_product";
+
+  async function runPdeSimulation(notify = false) {
+    const stepsInput = document.getElementById("pde-steps-input");
+    const alphaInput = document.getElementById("pde-alpha-input");
+    const steps = Math.max(1, Math.min(250, Number(stepsInput?.value || 35)));
+    const alpha = Math.max(0.0005, Math.min(0.05, Number(alphaInput?.value || 0.01)));
+
+    try {
+      const resp = await fetch("/api/v1/pde/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n: 41,
+          steps,
+          alpha,
+          pulse_type: activePdePulse,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderPdeChart(data);
+      if (notify) {
+        showToast(`Simulated ${data.steps} PDE steps (CFL r=${data.cfl_number})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderPdeChart(data) {
+    const badge = document.getElementById("pde-cfl-badge");
+    const energyEl = document.getElementById("pde-energy-readout");
+    const quadNote = document.getElementById("pde-quadratic-note");
+    const svg = document.getElementById("pde-svg-chart");
+
+    if (badge) {
+      badge.className = `status-badge ${data.is_stable ? "status-success" : "status-danger"}`;
+      badge.textContent = `${data.stability_label} (r = ${data.cfl_number})`;
+    }
+    if (energyEl) {
+      energyEl.textContent = `Peak Retention: ${data.peak_retention_pct}%`;
+    }
+    if (quadNote && data.quadratic_stability) {
+      quadNote.textContent = `Citardauq Δ = ${Number(data.quadratic_stability.cancellation_error).toExponential(2)}`;
+    }
+    if (!svg || !Array.isArray(data.u_init) || !Array.isArray(data.u_final)) return;
+
+    const w = 420;
+    const h = 140;
+    const padX = 14;
+    const padY = 14;
+    const maxVal = Math.max(1.0, ...data.u_init, ...data.u_final.map((v) => Math.min(2.5, Math.abs(v))));
+    const n = data.u_init.length;
+
+    const toPts = (arr) =>
+      arr
+        .map((v, i) => {
+          const clamped = Math.max(-0.2, Math.min(2.0, v));
+          const x = padX + (i / Math.max(1, n - 1)) * (w - 2 * padX);
+          const y = h - padY - (clamped / maxVal) * (h - 2 * padY);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
+
+    const initPts = toPts(data.u_init);
+    const finalPts = toPts(data.u_final);
+
+    svg.innerHTML = `
+      <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.18" stroke-width="1" />
+      <polyline fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-dasharray="4 4" points="${initPts}" />
+      <polyline fill="none" stroke="#6366F1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${finalPts}" />
+    `;
+  }
+
+  async function runLiveBenchmark(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/benchmarks/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workload: activeBenchWorkload,
+          size: 5000,
+          iterations: 20,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderBenchmarkChart(data);
+      if (notify) {
+        showToast(`Benchmark complete: ${data.speedup_vs_python}x faster than Python loop`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderBenchmarkChart(data) {
+    const routineEl = document.getElementById("bench-routine-label");
+    const speedupBadge = document.getElementById("bench-speedup-badge");
+    const accNote = document.getElementById("bench-accuracy-note");
+    const barsEl = document.getElementById("bench-bars-container");
+
+    if (routineEl) {
+      routineEl.innerHTML = `<code>${escapeHtml(data.fortran_routine)}</code> (N=${escapeHtml(data.size)})`;
+    }
+    if (speedupBadge) {
+      speedupBadge.textContent = `${data.speedup_vs_python}x Faster`;
+    }
+    if (accNote) {
+      accNote.textContent = data.result_summary;
+    }
+    if (!barsEl || !Array.isArray(data.series)) return;
+
+    const maxLatency = Math.max(1, ...data.series.map((s) => s.latency_us));
+    barsEl.innerHTML = data.series
+      .map((s) => {
+        const widthPct = Math.max(8, Math.min(100, Math.round((s.latency_us / maxLatency) * 100)));
+        const toneClass = s.tone === "success" ? "tone-success" : s.tone === "warning" ? "tone-warning" : "";
+        return `
+          <div class="chart-row">
+            <div class="chart-row-label">
+              <span class="chart-tier-title">${escapeHtml(s.label)}</span>
+              <span class="chart-tier-sub mono-text">${escapeHtml(s.relative_speedup)}</span>
+            </div>
+            <div class="chart-bar-track">
+              <div class="chart-bar-fill ${toneClass}" style="width: ${widthPct}%"></div>
+              <span class="chart-bar-value">${escapeHtml(s.latency_us)} µs</span>
+            </div>
+            <div class="chart-epsilon-cell mono-text">${escapeHtml(s.relative_speedup)}</div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  async function exportDiagnosticReport() {
+    try {
+      const resp = await fetch("/api/v1/export/report");
+      if (!resp.ok) return;
+      const report = await resp.json();
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "f2py-diagnostic-report.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Exported f2py-diagnostic-report.json");
+    } catch (_err) {
+      showToast("Failed to export report");
+    }
   }
 
   // Bottom Sheet Modal Logic (Mobile #5 & #6)
@@ -1235,6 +1397,35 @@
     window.addEventListener("resize", updateTableScrollHint);
     bindCopyButtons();
 
+    // PDE Stencil, Benchmark Lab & Export Report Listeners (Phase 7)
+    document.getElementById("export-report-btn")?.addEventListener("click", exportDiagnosticReport);
+    document.getElementById("run-pde-btn")?.addEventListener("click", () => runPdeSimulation(true));
+    document.getElementById("run-bench-btn")?.addEventListener("click", () => runLiveBenchmark(true));
+
+    document.querySelectorAll("[data-pde-pulse]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activePdePulse = btn.getAttribute("data-pde-pulse") || "gaussian";
+        document.querySelectorAll("[data-pde-pulse]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runPdeSimulation(true);
+      });
+    });
+
+    document.querySelectorAll("[data-bench-workload]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeBenchWorkload = btn.getAttribute("data-bench-workload") || "dot_product";
+        document.querySelectorAll("[data-bench-workload]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runLiveBenchmark(true);
+      });
+    });
+
     // Load initial API state
     try {
       const [healthResp, kernelsResp, compResp] = await Promise.all([
@@ -1270,7 +1461,12 @@
       // ignore
     }
 
-    await Promise.all([loadPrecisionData(), loadPresets()]);
+    await Promise.all([
+      loadPrecisionData(),
+      loadPresets(),
+      runPdeSimulation(false),
+      runLiveBenchmark(false),
+    ]);
   }
 
   if (document.readyState === "loading") {

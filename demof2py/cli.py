@@ -11,6 +11,7 @@ from typing import List, Optional
 import uvicorn
 
 from .auditor import audit_fortran_source, load_project_presets
+from .benchmarks import run_performance_benchmark, simulate_heat_pde
 from .kernels import compare_all_intents
 from .precision import run_ieee754_benchmark
 
@@ -32,6 +33,19 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("precision", help="Run IEEE 754 precision and .f2py_f2cmap benchmark")
 
+    bench_p = sub.add_parser("benchmark", help="Run F2PY vs NumPy vs Python performance benchmark")
+    bench_p.add_argument(
+        "--workload",
+        choices=["dot_product", "simpson_quad", "heat_pde"],
+        default="dot_product",
+    )
+    bench_p.add_argument("--size", type=int, default=5000)
+
+    pde_p = sub.add_parser("pde", help="Run 1D Heat Diffusion PDE simulation (`Heat1DStep`)")
+    pde_p.add_argument("--steps", type=int, default=35)
+    pde_p.add_argument("--alpha", type=float, default=0.01)
+    pde_p.add_argument("--pulse", choices=["gaussian", "sine", "bimodal"], default="gaussian")
+
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
 
@@ -43,6 +57,19 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "precision":
         print(json.dumps(run_ieee754_benchmark(), indent=2))
+        return 0
+
+    if args.command == "benchmark":
+        print(json.dumps(run_performance_benchmark(args.workload, size=args.size), indent=2))
+        return 0
+
+    if args.command == "pde":
+        print(
+            json.dumps(
+                simulate_heat_pde(steps=args.steps, alpha=args.alpha, pulse_type=args.pulse),
+                indent=2,
+            )
+        )
         return 0
 
     if args.command == "audit":
