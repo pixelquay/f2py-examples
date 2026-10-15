@@ -7,12 +7,13 @@ Detects:
 3. Subroutine arguments missing explicit `INTENT(IN|OUT|INOUT)`.
 4. Unmapped `real(kind)` specifiers not present in `.f2py_f2cmap`.
 5. Single-precision floating-point literals assigned to 64-bit/128-bit targets.
+6. Generates PEP 561 `.pyi` Python type stubs and F2PY `.pyf` signatures.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 SOURCE_DIR = Path(__file__).resolve().parent.parent
 
@@ -72,6 +73,14 @@ def load_project_presets() -> List[Dict[str, Any]]:
             "summary": "Contrasts ProdNoIntent (missing intent) with ProdIntent, ProdInOut, and vector kernels.",
         },
         {
+            "id": "numerics_f90",
+            "filename": "numerics.f90",
+            "title": "PDE Stencil, Matrix & Quadrature Suite (numerics.f90)",
+            "category": "numerics",
+            "dialect": "f90",
+            "summary": "Production Fortran 2008 module for 1D Heat PDE, column-major MatMulDp, and Simpson quadrature.",
+        },
+        {
             "id": "float_precision_f90",
             "filename": "floatPrecision.f90",
             "title": "IEEE 754 Machine Epsilon Module (floatPrecision.f90)",
@@ -89,6 +98,130 @@ def load_project_presets() -> List[Dict[str, Any]]:
     return presets
 
 
+def _generate_stubs_from_source(code: str, filename: str) -> Tuple[str, str]:
+    """
+    Generate a PEP 561 `.pyi` Python type stub and an F2PY `.pyf` signature
+    preview from Fortran subroutines/functions and their INTENT declarations.
+    """
+    mod_match = re.search(r"^\s*module\s+([a-zA-Z0-9_]+)", code, flags=re.IGNORECASE | re.MULTILINE)
+    mod_name = mod_match.group(1).lower() if mod_match else Path(filename).stem.lower()
+
+    sub_pattern = re.compile(
+        r"^\s*(?:pure\s+|elemental\s+)?(?:real(?:\([^)]*\))?\s+)?(subroutine|function)\s+([a-zA-Z0-9_]+)\s*(?:\(([^)]*)\))?",
+        flags=re.IGNORECASE,
+    )
+    end_pattern = re.compile(r"^\s*end\s+(?:subroutine|function)\b", flags=re.IGNORECASE)
+
+    routines: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+
+    for raw_line in code.splitlines():
+        clean_line = raw_line.split("!", 1)[0].strip()
+        if not clean_line:
+            continue
+        m_sub = sub_pattern.match(clean_line)
+        if m_sub:
+            kind_type = m_sub.group(1).lower()
+            r_name = m_sub.group(2).lower()
+            raw_args = m_sub.group(3) or ""
+            args = [a.strip().lower() for a in raw_args.split(",") if a.strip()]
+            current = {
+                "kind": kind_type,
+                "name": r_name,
+                "args": args,
+                "arg_meta": {a: {"type": "float", "intent": "in", "is_array": False} for a in args},
+            }
+            continue
+
+        if current is not None:
+            if "::" in clean_line:
+                lhs, rhs = clean_line.split("::", 1)
+                lhs_l = lhs.lower()
+                py_type = "int" if "integer" in lhs_l else "float"
+                intent = "in"
+                m_int = re.search(r"intent\s*\(\s*(in\s*out|inout|out|in)\s*\)", lhs_l)
+                if m_int:
+                    intent = m_int.group(1).replace(" ", "")
+                for decl_item in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(\([^)]*\))?", rhs):
+                    var_name = decl_item.group(1).lower()
+                    has_dims = bool(decl_item.group(2))
+                    if var_name in current["arg_meta"]:
+                        current["arg_meta"][var_name] = {
+                            "type": py_type,
+                            "intent": intent,
+                            "is_array": has_dims,
+                        }
+            if end_pattern.match(clean_line):
+                routines.append(current)
+                current = None
+
+    pyi_lines = [
+        f"# Auto-generated PEP 561 stub for {filename} (module `{mod_name}`)",
+        "from typing import Tuple, Union, Sequence",
+        "import numpy as np",
+        "from numpy.typing import NDArray",
+        "",
+    ]
+    pyf_lines = [
+        f"!    -*- f90 -*-",
+        f"python module {mod_name} ! auto-generated f2py signature preview",
+        "    interface",
+    ]
+
+    if not routines:
+        pyi_lines.append("# Top-level data/parameter module")
+        pyi_lines.append("pi32: float")
+        pyi_lines.append("pi64: float")
+    else:
+        for r in routines:
+            in_params: List[str] = []
+            out_types: List[str] = []
+            pyf_decls: List[str] = []
+
+            for a in r["args"]:
+                meta = r["arg_meta"][a]
+                intent = meta["intent"]
+                is_arr = meta["is_array"]
+                base_t = meta["type"]
+                if is_arr:
+                    py_in_t = "Union[Sequence[float], NDArray[np.float64]]"
+                    py_out_t = "NDArray[np.float64]"
+                elif intent == "inout":
+                    py_in_t = "NDArray[np.floating]"
+                    py_out_t = "None"
+                else:
+                    py_in_t = base_t
+                    py_out_t = base_t
+
+                if intent in ("in", "inout"):
+                    in_params.append(f"{a}: {py_in_t}")
+                if intent == "out":
+                    out_types.append(py_out_t)
+
+                f_type = "integer" if base_t == "int" else "real(dp)"
+                pyf_decls.append(f"            {f_type}, intent({intent}) :: {a}")
+
+            if r["kind"] == "function" and not out_types:
+                ret_str = "float"
+            elif not out_types:
+                ret_str = "None"
+            elif len(out_types) == 1:
+                ret_str = out_types[0]
+            else:
+                ret_str = f"Tuple[{', '.join(out_types)}]"
+
+            params_sig = ", ".join(in_params)
+            pyi_lines.append(f"def {r['name']}({params_sig}) -> {ret_str}: ...")
+
+            args_csv = ", ".join(r["args"])
+            pyf_lines.append(f"        {r['kind']} {r['name']}({args_csv})")
+            pyf_lines.extend(pyf_decls)
+            pyf_lines.append(f"        end {r['kind']} {r['name']}")
+
+    pyf_lines.extend(["    end interface", f"end python module {mod_name}"])
+    return "\n".join(pyi_lines) + "\n", "\n".join(pyf_lines) + "\n"
+
+
 def audit_fortran_source(
     code: str,
     filename: str = "snippet.f90",
@@ -96,7 +229,8 @@ def audit_fortran_source(
 ) -> Dict[str, Any]:
     """
     Analyze Fortran source code for f2py compatibility, precision hazards, and
-    INTENT completeness. Returns structured diagnostics and auto-remediated code.
+    INTENT completeness. Returns structured diagnostics, auto-remediated code,
+    and generated PEP 561 `.pyi` and `.pyf` signatures.
     """
     is_f77 = filename.lower().endswith((".f", ".for", ".f77"))
     mapped_kinds = DEFAULT_CMAP_KINDS if cmap_mode == "modern" else LEGACY_CMAP_KINDS
@@ -282,6 +416,9 @@ def audit_fortran_source(
         overall_status = "success"
         overall_label = "f2py Ready"
 
+    fixed_code_str = "\n".join(fixed_lines) + "\n"
+    pyi_stub, pyf_sig = _generate_stubs_from_source(fixed_code_str, filename)
+
     return {
         "filename": filename,
         "dialect": "Fortran 77 Fixed-Form (.f)" if is_f77 else "Fortran 90+ Free-Form (.f90)",
@@ -292,6 +429,8 @@ def audit_fortran_source(
         "warning_count": warning_count,
         "detected_kinds": sorted(detected_kinds),
         "findings": findings,
-        "fixed_code": "\n".join(fixed_lines) + "\n",
+        "fixed_code": fixed_code_str,
         "recommended_cmap": recommended_cmap,
+        "generated_pyi_stub": pyi_stub,
+        "generated_pyf_signature": pyf_sig,
     }
