@@ -2218,3 +2218,62 @@ input[type="search"]::-webkit-search-results-decoration {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   1D Heat Diffusion PDE Visualizer & Benchmark Speedup Bars (Phase 7)
+   ========================================================================== */
+.pde-chart-box {
+  background-color: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pde-legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.pde-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pde-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.pde-swatch.is-init {
+  background-color: var(--text-muted);
+}
+
+.pde-swatch.is-final {
+  background-color: var(--accent-primary);
+}
+
+.pde-svg {
+  width: 100%;
+  height: 140px;
+  display: block;
+}
+
+.chart-bar-fill.tone-success {
+  background-color: var(--success-dot, #10B981);
+}
+
+.chart-bar-fill.tone-warning {
+  background-color: var(--warning-dot, #F59E0B);
+}
+

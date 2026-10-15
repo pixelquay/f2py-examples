@@ -18,6 +18,11 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .auditor import audit_fortran_source, load_project_presets
+from .benchmarks import (
+    build_diagnostic_bundle,
+    run_performance_benchmark,
+    simulate_heat_pde,
+)
 from .kernels import LIST_KERNELS, compare_all_intents, execute_kernel
 from .precision import run_ieee754_benchmark
 
@@ -25,7 +30,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(
     title="f2py Fortran-Python Numerical Workbench",
-    description="Interactive calculation routines, IEEE 754 precision verification, and f2py static diagnostics.",
+    description="Interactive calculation routines, IEEE 754 precision verification, 1D Heat PDE solver, and f2py static diagnostics.",
     version=__version__,
 )
 
@@ -44,7 +49,7 @@ class KernelExecuteRequest(BaseModel):
         default=12345.0,
         ge=-1e12,
         le=1e12,
-        description="Initial value of z before callingProdNoIntent or ProdInOut",
+        description="Initial value of z before calling ProdNoIntent or ProdInOut",
     )
     use_ndarray_for_inout: bool = Field(
         default=True,
@@ -71,6 +76,27 @@ class AuditRequest(BaseModel):
         default="modern",
         pattern="^(modern|legacy)$",
         description="Active .f2py_f2cmap mode: 'modern' (includes real32/real64/real128) or 'legacy' (sp/dp only)",
+    )
+
+
+class BenchmarkRunRequest(BaseModel):
+    workload: str = Field(
+        default="dot_product",
+        pattern="^(dot_product|simpson_quad|heat_pde)$",
+        description="Benchmark workload: dot_product, simpson_quad, or heat_pde",
+    )
+    size: int = Field(default=5000, ge=32, le=50000, description="Vector/grid size N")
+    iterations: int = Field(default=20, ge=3, le=100, description="Iterations for timing average")
+
+
+class PdeSimulateRequest(BaseModel):
+    n: int = Field(default=41, ge=15, le=101, description="Spatial grid points on [0, 1]")
+    steps: int = Field(default=35, ge=1, le=250, description="Number of explicit Euler time steps")
+    alpha: float = Field(default=0.01, ge=0.0005, le=0.05, description="Thermal diffusivity alpha")
+    pulse_type: str = Field(
+        default="gaussian",
+        pattern="^(gaussian|sine|bimodal)$",
+        description="Initial thermal profile: gaussian, sine, or bimodal",
     )
 
 
@@ -187,6 +213,33 @@ def clear_run_history() -> Dict[str, Any]:
 def get_precision_benchmark() -> Dict[str, Any]:
     """Run IEEE 754 floating-point precision and .f2py_f2cmap benchmarks."""
     return run_ieee754_benchmark()
+
+
+@app.post("/api/v1/benchmarks/run")
+def post_run_benchmark(req: BenchmarkRunRequest) -> Dict[str, Any]:
+    """Run live head-to-head F2PY vs Vectorized NumPy vs Pure Python performance benchmark."""
+    return run_performance_benchmark(
+        workload=req.workload,
+        size=req.size,
+        iterations=req.iterations,
+    )
+
+
+@app.post("/api/v1/pde/simulate")
+def post_simulate_pde(req: PdeSimulateRequest) -> Dict[str, Any]:
+    """Execute the 1D Heat Diffusion PDE solver (`fortnumerics.heat1dstep`)."""
+    return simulate_heat_pde(
+        n=req.n,
+        steps=req.steps,
+        alpha=req.alpha,
+        pulse_type=req.pulse_type,
+    )
+
+
+@app.get("/api/v1/export/report")
+def get_export_report() -> Dict[str, Any]:
+    """Export a full JSON diagnostic & benchmark report."""
+    return build_diagnostic_bundle()
 
 
 @app.get("/api/v1/presets")
