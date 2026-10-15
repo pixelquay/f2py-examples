@@ -193,8 +193,28 @@ def test_fastapi_workbench_endpoints():
     assert num_c_data["matrix"]["strides_bytes"] == [24, 8]
     assert num_c_data["quadrature"]["exact_value"] == approx(np.e - 1.0)
 
+    quad_resp = client.post(
+        "/api/v1/numerics/quadratic",
+        json={"a": 1.0, "b": 1.0e8, "c": 1.0},
+    )
+    assert quad_resp.status_code == 200
+    quad_data = quad_resp.json()
+    assert quad_data["r2_stable"] == approx(-1.0e-8, rel=1e-12)
+    assert quad_data["mantissa_digits_lost"] > 6.0
+    assert quad_data["vieta_stable_rel_error"] < 1e-14
+    assert len(quad_data["sweep"]) == 5
+
+    native_resp = client.post(
+        "/api/v1/native-cli/run",
+        json={"mode": "all"},
+    )
+    assert native_resp.status_code == 200
+    native_data = native_resp.json()
+    assert native_data["exit_code"] == 0
+    assert "Fortran 2008 Numerical Workbench" in native_data["stdout"]
 
     index_page = client.get("/")
     assert index_page.status_code == 200
     assert "f2py Workbench" in index_page.text
+
 

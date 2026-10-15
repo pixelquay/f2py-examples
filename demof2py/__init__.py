@@ -8,10 +8,12 @@ from .benchmarks import (
     run_performance_benchmark,
     simulate_heat_pde,
     evaluate_matrix_and_quadrature,
+    evaluate_quadratic_cancellation,
+    run_native_fortran_cli,
     build_diagnostic_bundle,
 )
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 __all__ = [
     "__version__",
@@ -25,5 +27,8 @@ __all__ = [
     "run_performance_benchmark",
     "simulate_heat_pde",
     "evaluate_matrix_and_quadrature",
+    "evaluate_quadratic_cancellation",
+    "run_native_fortran_cli",
     "build_diagnostic_bundle",
 ]
+

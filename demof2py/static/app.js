@@ -998,6 +998,100 @@
     }
   }
 
+  // Phase 10: Catastrophic Cancellation Lab & Native Fortran 2008 CLI Runner
+  let activeQuadB = 1.0e8;
+  let activeNativeMode = "all";
+
+  async function runQuadraticExplorer(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/numerics/quadratic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          a: 1.0,
+          b: activeQuadB,
+          c: 1.0,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderQuadraticExplorer(data);
+      if (notify) {
+        showToast(`Evaluated QuadraticRootsCompare (b=${activeQuadB.toExponential(0)})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderQuadraticExplorer(data) {
+    if (!data) return;
+    const badge = document.getElementById("quad-root-badge");
+    const r2Naive = document.getElementById("quad-r2-naive-val");
+    const r2Stable = document.getElementById("quad-r2-stable-val");
+    const cancelErr = document.getElementById("quad-cancel-err-val");
+    const vietaVal = document.getElementById("quad-vieta-val");
+
+    if (badge) {
+      badge.className = `status-badge status-${data.status_type || "danger"}`;
+      badge.textContent = data.status_label || "";
+    }
+    if (r2Naive) {
+      r2Naive.textContent = Number(data.r2_naive).toExponential(15);
+    }
+    if (r2Stable) {
+      r2Stable.textContent = Number(data.r2_stable).toExponential(15);
+    }
+    if (cancelErr) {
+      const relPct = (Number(data.rel_root2_error) * 100.0).toFixed(2);
+      cancelErr.textContent = `${Number(data.abs_cancel_error).toExponential(6)} (${relPct}% rel err)`;
+    }
+    if (vietaVal) {
+      vietaVal.textContent = `Stable: ${Number(data.vieta_stable_rel_error).toExponential(2)} • Naive: ${Number(data.vieta_naive_rel_error).toExponential(2)}`;
+    }
+  }
+
+  async function runNativeFortranCli(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/native-cli/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: activeNativeMode }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderNativeFortranCli(data);
+      if (notify) {
+        showToast(`Executed ./builddir/fortran_workbench ${data.flag} (${data.elapsed_ms} ms)`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderNativeFortranCli(data) {
+    if (!data) return;
+    const badge = document.getElementById("native-cli-badge");
+    const cmdLabel = document.getElementById("native-cli-cmd-label");
+    const latency = document.getElementById("native-cli-latency");
+    const stdoutPre = document.getElementById("native-cli-stdout-pre");
+
+    if (badge) {
+      badge.className = `status-badge ${data.exit_code === 0 ? "status-success" : "status-danger"}`;
+      badge.textContent = `Exit ${data.exit_code} • ${data.binary_found ? "Native Binary" : "Fallback"}`;
+    }
+    if (cmdLabel) {
+      cmdLabel.textContent = `$ ./builddir/fortran_workbench ${data.flag}`;
+    }
+    if (latency) {
+      latency.textContent = `${data.elapsed_ms} ms`;
+    }
+    if (stdoutPre) {
+      stdoutPre.textContent = data.stdout || "";
+    }
+  }
+
+
   // Bottom Sheet Modal Logic (Mobile #5 & #6)
   function openPresetSheet() {
     const backdrop = document.getElementById("preset-sheet-backdrop");
@@ -1553,6 +1647,33 @@
       });
     });
 
+    // Phase 10: Catastrophic Cancellation Lab & Native Fortran CLI controls
+    document.querySelectorAll("[data-quad-b]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeQuadB = Number(btn.getAttribute("data-quad-b") || 1e8);
+        document.querySelectorAll("[data-quad-b]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runQuadraticExplorer(true);
+      });
+    });
+    document.getElementById("run-quad-roots-btn")?.addEventListener("click", () => runQuadraticExplorer(true));
+
+    document.querySelectorAll("[data-native-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeNativeMode = btn.getAttribute("data-native-mode") || "all";
+        document.querySelectorAll("[data-native-mode]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runNativeFortranCli(true);
+      });
+    });
+    document.getElementById("run-native-cli-btn")?.addEventListener("click", () => runNativeFortranCli(true));
+
     // Load initial API state
     try {
       const [healthResp, kernelsResp, compResp] = await Promise.all([
@@ -1594,6 +1715,8 @@
       runPdeSimulation(false),
       runLiveBenchmark(false),
       runNumericsExplorer(false),
+      runQuadraticExplorer(false),
+      runNativeFortranCli(false),
     ]);
   }
 
