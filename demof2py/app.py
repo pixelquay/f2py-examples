@@ -21,6 +21,8 @@ from .auditor import audit_fortran_source, load_project_presets
 from .benchmarks import (
     build_diagnostic_bundle,
     evaluate_matrix_and_quadrature,
+    evaluate_quadratic_cancellation,
+    run_native_fortran_cli,
     run_performance_benchmark,
     simulate_heat_pde,
 )
@@ -118,6 +120,21 @@ class NumericsExploreRequest(BaseModel):
         description="Quadrature integrand: sin_pi, exp_unit, or poly_quartic",
     )
     points: int = Field(default=101, ge=11, le=501, description="Quadrature grid node count")
+
+
+class QuadraticExploreRequest(BaseModel):
+    a: float = Field(default=1.0, description="Quadratic coefficient a")
+    b: float = Field(default=1.0e8, description="Linear coefficient b (large values trigger cancellation)")
+    c: float = Field(default=1.0, description="Constant term c")
+
+
+class NativeCliRunRequest(BaseModel):
+    mode: str = Field(
+        default="all",
+        pattern="^(all|precision|intents|pde|linalg)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, or linalg",
+    )
+
 
 
 @app.get("/api/v1/health")
@@ -265,6 +282,23 @@ def post_explore_numerics(req: NumericsExploreRequest) -> Dict[str, Any]:
         integrand=req.integrand,
         points=req.points,
     )
+
+
+@app.post("/api/v1/numerics/quadratic")
+def post_explore_quadratic(req: QuadraticExploreRequest) -> Dict[str, Any]:
+    """Evaluate catastrophic cancellation vs Citardauq stable quadratic roots (`QuadraticRootsCompare`)."""
+    return evaluate_quadratic_cancellation(
+        a=req.a,
+        b=req.b,
+        c=req.c,
+    )
+
+
+@app.post("/api/v1/native-cli/run")
+def post_run_native_cli(req: NativeCliRunRequest) -> Dict[str, Any]:
+    """Execute the standalone native Fortran 2008 CLI binary (`builddir/fortran_workbench`)."""
+    return run_native_fortran_cli(mode=req.mode)
+
 
 
 @app.get("/api/v1/export/report")

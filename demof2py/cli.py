@@ -13,6 +13,7 @@ import uvicorn
 from .auditor import audit_fortran_source, load_project_presets
 from .benchmarks import (
     evaluate_matrix_and_quadrature,
+    evaluate_quadratic_cancellation,
     run_performance_benchmark,
     simulate_heat_pde,
 )
@@ -60,6 +61,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     num_p.add_argument("--integrand", choices=["sin_pi", "exp_unit", "poly_quartic"], default="sin_pi")
     num_p.add_argument("--points", type=int, default=101)
 
+    quad_p = sub.add_parser("quadratic", help="Run Catastrophic Cancellation vs Citardauq root stability analysis")
+    quad_p.add_argument("-a", type=float, default=1.0)
+    quad_p.add_argument("-b", type=float, default=1.0e8)
+    quad_p.add_argument("-c", type=float, default=1.0)
+
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
 
@@ -95,6 +101,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                     integrand=args.integrand,
                     points=args.points,
                 ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "quadratic":
+        print(
+            json.dumps(
+                evaluate_quadratic_cancellation(a=args.a, b=args.b, c=args.c),
                 indent=2,
             )
         )

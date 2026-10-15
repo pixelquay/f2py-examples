@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+from pathlib import Path
+import subprocess
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List
 import numpy as np
 
 from fortnumerics import fortnumerics
@@ -376,17 +378,156 @@ def evaluate_matrix_and_quadrature(
     }
 
 
+def evaluate_quadratic_cancellation(
+    a: float = 1.0,
+    b: float = 1.0e8,
+    c: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Evaluate catastrophic cancellation in the quadratic formula (-b + sqrt(b^2 - 4ac)) / (2a)
+    versus Citardauq's stable root formulation (`QuadraticRootsCompare` in `numerics.f90`).
+    """
+    if abs(a) < 1e-15:
+        a = 1.0
+    disc = (b * b) - (4.0 * a * c)
+    if disc < 0.0:
+        b = max(abs(b), 2.0 * math.sqrt(abs(a * c)) + 1.0)
+        disc = (b * b) - (4.0 * a * c)
+
+    r1_naive, r2_naive, r1_stable, r2_stable, cancel_err = fortnumerics.quadraticrootscompare(
+        float(a), float(b), float(c)
+    )
+
+    vieta_expected_prod = float(c / a)
+    naive_vieta_prod = float(r1_naive * r2_naive)
+    stable_vieta_prod = float(r1_stable * r2_stable)
+
+    naive_vieta_rel_err = abs(naive_vieta_prod - vieta_expected_prod) / max(
+        abs(vieta_expected_prod), 1e-30
+    )
+    stable_vieta_rel_err = abs(stable_vieta_prod - vieta_expected_prod) / max(
+        abs(vieta_expected_prod), 1e-30
+    )
+
+    rel_root2_err = abs(r2_naive - r2_stable) / max(abs(r2_stable), 1e-30)
+    if rel_root2_err <= 1e-16:
+        digits_lost = 0.0
+    else:
+        digits_lost = round(min(16.0, max(0.0, 15.95 + math.log10(rel_root2_err))), 2)
+
+    sweep_scales: List[float] = [1.0e4, 1.0e6, 1.0e7, 1.0e8, 5.0e8]
+    sweep_rows = []
+    for b_val in sweep_scales:
+        _, r2_n, _, r2_s, c_err = fortnumerics.quadraticrootscompare(1.0, b_val, 1.0)
+        rel_e = abs(r2_n - r2_s) / max(abs(r2_s), 1e-30)
+        lost = 0.0 if rel_e <= 1e-16 else round(min(16.0, max(0.0, 15.95 + math.log10(rel_e))), 1)
+        sweep_rows.append(
+            {
+                "b": b_val,
+                "r2_naive": r2_n,
+                "r2_stable": r2_s,
+                "abs_cancel_err": c_err,
+                "rel_err": rel_e,
+                "digits_lost": lost,
+            }
+        )
+
+    return {
+        "coefficients": {"a": float(a), "b": float(b), "c": float(c)},
+        "discriminant": disc,
+        "r1_naive": r1_naive,
+        "r2_naive": r2_naive,
+        "r1_stable": r1_stable,
+        "r2_stable": r2_stable,
+        "abs_cancel_error": cancel_err,
+        "rel_root2_error": rel_root2_err,
+        "mantissa_digits_lost": digits_lost,
+        "vieta_product_expected": vieta_expected_prod,
+        "vieta_naive_rel_error": naive_vieta_rel_err,
+        "vieta_stable_rel_error": stable_vieta_rel_err,
+        "status_type": "danger" if digits_lost >= 6.0 else ("warning" if digits_lost >= 2.0 else "success"),
+        "status_label": (
+            f"{digits_lost:.1f} Decimal Digits Lost (Naive)"
+            if digits_lost >= 1.0
+            else "Well-Conditioned (0 Digits Lost)"
+        ),
+        "sweep": sweep_rows,
+    }
+
+
+def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
+    """
+    Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
+    and return its formatted numerical report.
+    """
+    flag_map = {
+        "all": "--all",
+        "precision": "--precision",
+        "intents": "--intents",
+        "pde": "--pde",
+        "linalg": "--linalg",
+    }
+    cli_flag = flag_map.get(mode, "--all")
+    source_root = Path(__file__).resolve().parent.parent
+    binary_path = source_root / "builddir" / "fortran_workbench"
+
+    t0 = time.perf_counter()
+    if binary_path.exists() and binary_path.is_file():
+        proc = subprocess.run(
+            [str(binary_path), cli_flag],
+            cwd=str(source_root),
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+        return {
+            "mode": mode,
+            "flag": cli_flag,
+            "binary_found": True,
+            "binary_name": "builddir/fortran_workbench",
+            "exit_code": proc.returncode,
+            "elapsed_ms": elapsed_ms,
+            "stdout": proc.stdout.strip(),
+        }
+
+    # Deterministic fallback if Meson builddir binary is not present in container
+    q_res = evaluate_quadratic_cancellation(1.0, 1.0e8, 1.0)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    fallback_out = (
+        "========================================================================\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v2.2.0)\n"
+        "========================================================================\n"
+        f"  Mode     : {cli_flag}\n"
+        f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
+        f"  Naive Err: |r2_naive - r2_stable| = {q_res['abs_cancel_error']:.6e}\n"
+        "========================================================================"
+    )
+    return {
+        "mode": mode,
+        "flag": cli_flag,
+        "binary_found": False,
+        "binary_name": "fortnumerics (in-process fallback)",
+        "exit_code": 0,
+        "elapsed_ms": elapsed_ms,
+        "stdout": fallback_out,
+    }
+
+
 def build_diagnostic_bundle() -> Dict[str, Any]:
     """Assemble a full JSON diagnostic & benchmark report for download/export."""
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
         "benchmark": run_performance_benchmark("dot_product", size=5000, iterations=15),
         "heat_pde": simulate_heat_pde(n=41, steps=35, alpha=0.01, pulse_type="gaussian"),
         "numerics_explorer": evaluate_matrix_and_quadrature(),
+        "quadratic_cancellation": evaluate_quadratic_cancellation(),
     }
+
 

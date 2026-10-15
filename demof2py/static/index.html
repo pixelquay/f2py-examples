@@ -27,7 +27,7 @@
           <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
           <div class="brand-title-row">
             <span class="brand-title">f2py Workbench</span>
-            <span class="version-chip" id="header-version-chip">v2.1.0</span>
+            <span class="version-chip" id="header-version-chip">v2.2.0</span>
           </div>
         </div>
       </div>
@@ -945,6 +945,101 @@ assert z == 6.0  # isinstance(z, float)</pre>
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                 </svg>
                 <span>Run Live Benchmark</span>
+              </button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <!-- Phase 10: Catastrophic Cancellation Lab & Native Fortran 2008 CLI Binary Runner -->
+      <div class="section-block">
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Catastrophic Cancellation Lab &amp; Native Fortran 2008 CLI Runner</h2>
+            <p class="section-subtitle">
+              Compare naive quadratic root evaluation against Citardauq's stable formulation (<code>QuadraticRootsCompare</code>) and execute the standalone compiled Fortran 2008 binary (<code>fortran_workbench</code>).
+            </p>
+          </div>
+        </div>
+
+        <div class="workbench-two-col">
+          <!-- Left Card: Catastrophic Cancellation & Citardauq Root Stability Lab -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Catastrophic Cancellation (<code>QuadraticRootsCompare</code>)</h3>
+                <p class="panel-subtitle" id="quad-root-subtitle">ax&sup2; + bx + c = 0 &bull; b&sup2; &gg; 4ac</p>
+              </div>
+              <span class="status-badge status-danger" id="quad-root-badge">14.2 Decimal Digits Lost (Naive)</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select linear coefficient b magnitude">
+              <button type="button" class="filter-chip" data-quad-b="10000" aria-pressed="false">b = 10⁴ (Mild)</button>
+              <button type="button" class="filter-chip" data-quad-b="1000000" aria-pressed="false">b = 10⁶ (Moderate)</button>
+              <button type="button" class="filter-chip is-active" data-quad-b="100000000" aria-pressed="true">b = 10⁸ (Severe Cancellation)</button>
+            </div>
+
+            <dl class="runtime-kv-list">
+              <div class="runtime-kv-row">
+                <dt>Naive Root r<sub>2</sub> = (&minus;b + &radic;&Delta;) / 2a</dt>
+                <dd class="mono-text" id="quad-r2-naive-val">-7.450580596923828e-09</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Citardauq Stable Root r<sub>2</sub> = c / q</dt>
+                <dd class="mono-text" id="quad-r2-stable-val">-1.000000000000000e-08</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Absolute Cancellation Error |r<sub>2,naive</sub> &minus; r<sub>2,stable</sub>|</dt>
+                <dd class="mono-text" id="quad-cancel-err-val">2.549419e-09 (25.5% relative error)</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Vieta Product Check |r<sub>1</sub>&middot;r<sub>2</sub> &minus; c/a|</dt>
+                <dd class="mono-text" id="quad-vieta-val">Stable: 0.00e+00 • Naive: 2.55e-01</dd>
+              </div>
+            </dl>
+
+            <div class="form-footer-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="run-quad-roots-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Evaluate Root Stability</span>
+              </button>
+            </div>
+          </article>
+
+          <!-- Right Card: Live Native Fortran 2008 Binary Runner -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Standalone Fortran 2008 Binary (<code>fortran_workbench</code>)</h3>
+                <p class="panel-subtitle" id="native-cli-subtitle">Compiled Mach-O / ELF executable via Meson</p>
+              </div>
+              <span class="status-badge status-success" id="native-cli-badge">Exit 0 • Native Binary</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select native Fortran CLI mode">
+              <button type="button" class="filter-chip is-active" data-native-mode="all" aria-pressed="true">--all (Full Suite)</button>
+              <button type="button" class="filter-chip" data-native-mode="precision" aria-pressed="false">--precision</button>
+              <button type="button" class="filter-chip" data-native-mode="pde" aria-pressed="false">--pde</button>
+              <button type="button" class="filter-chip" data-native-mode="linalg" aria-pressed="false">--linalg</button>
+            </div>
+
+            <div class="code-pane">
+              <div class="code-pane-header">
+                <span class="mono-text" id="native-cli-cmd-label">$ ./builddir/fortran_workbench --all</span>
+                <span class="mono-text" id="native-cli-latency">1.8 ms</span>
+              </div>
+              <pre class="code-block mono-text" id="native-cli-stdout-pre">Click "Run Native Fortran Binary" or select a CLI flag above to inspect live Fortran 2008 stdout.</pre>
+            </div>
+
+            <div class="form-footer-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="run-native-cli-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5"/>
+                  <line x1="12" y1="19" x2="20" y2="19"/>
+                </svg>
+                <span>Run Native Fortran Binary</span>
               </button>
             </div>
           </article>
