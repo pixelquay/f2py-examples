@@ -20,6 +20,7 @@ from . import __version__
 from .auditor import audit_fortran_source, load_project_presets
 from .benchmarks import (
     build_diagnostic_bundle,
+    evaluate_matrix_and_quadrature,
     run_performance_benchmark,
     simulate_heat_pde,
 )
@@ -98,6 +99,25 @@ class PdeSimulateRequest(BaseModel):
         pattern="^(gaussian|sine|bimodal)$",
         description="Initial thermal profile: gaussian, sine, or bimodal",
     )
+
+
+class NumericsExploreRequest(BaseModel):
+    matrix_preset: str = Field(
+        default="rotation_scale",
+        pattern="^(rotation_scale|spd_stiffness|hilbert_3x3)$",
+        description="Matrix multiplication preset: rotation_scale, spd_stiffness, or hilbert_3x3",
+    )
+    order_mode: str = Field(
+        default="F",
+        pattern="^(F|C)$",
+        description="Array memory layout order: 'F' (column-major zero-copy) or 'C' (row-major)",
+    )
+    integrand: str = Field(
+        default="sin_pi",
+        pattern="^(sin_pi|exp_unit|poly_quartic)$",
+        description="Quadrature integrand: sin_pi, exp_unit, or poly_quartic",
+    )
+    points: int = Field(default=101, ge=11, le=501, description="Quadrature grid node count")
 
 
 @app.get("/api/v1/health")
@@ -233,6 +253,17 @@ def post_simulate_pde(req: PdeSimulateRequest) -> Dict[str, Any]:
         steps=req.steps,
         alpha=req.alpha,
         pulse_type=req.pulse_type,
+    )
+
+
+@app.post("/api/v1/numerics/explore")
+def post_explore_numerics(req: NumericsExploreRequest) -> Dict[str, Any]:
+    """Execute column-major MatMulDp with stride inspection and Simpson 1/3 quadrature."""
+    return evaluate_matrix_and_quadrature(
+        matrix_preset=req.matrix_preset,
+        order_mode=req.order_mode,
+        integrand=req.integrand,
+        points=req.points,
     )
 
 

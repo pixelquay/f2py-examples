@@ -7,6 +7,7 @@ from .auditor import audit_fortran_source, load_project_presets
 from .benchmarks import (
     run_performance_benchmark,
     simulate_heat_pde,
+    evaluate_matrix_and_quadrature,
     build_diagnostic_bundle,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "load_project_presets",
     "run_performance_benchmark",
     "simulate_heat_pde",
+    "evaluate_matrix_and_quadrature",
     "build_diagnostic_bundle",
 ]
