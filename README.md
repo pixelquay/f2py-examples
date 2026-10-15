@@ -69,7 +69,7 @@ However, Windows itself can be more challenging due to inconsistencies in Micros
 See the Windows f2py installation guide and troubleshooting
 [guide](https://www.scivision.dev/f2py-fortran-python-windows/).
 
-## Production Web Workbench & CLI (`demof2py` v2.0)
+## Production Web Workbench, Native Fortran CLI & SDK (`demof2py` v2.1)
 
 Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 
@@ -77,11 +77,24 @@ Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 f2py-workbench serve --host 127.0.0.1 --port 8080
 ```
 
-Or run CLI diagnostics and precision benchmarks directly:
+Or run CLI diagnostics, 1D Heat Diffusion PDE simulations, and performance benchmarks directly:
 
 ```sh
 f2py-workbench demo -x 3 -y 2
 f2py-workbench precision
-f2py-workbench audit
+f2py-workbench benchmark --workload dot_product --size 5000
+f2py-workbench pde --steps 35 --alpha 0.01 --pulse gaussian
+f2py-workbench audit --cmap modern
 ```
+
+### Standalone Native Fortran 2008 CLI (`fortran_workbench`)
+
+Compile and run the standalone native Fortran 2008 numerical workbench binary via Meson:
+
+```sh
+meson setup builddir
+meson compile -C builddir
+./builddir/fortran_workbench --all
+```
+
 

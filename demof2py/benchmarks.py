@@ -264,7 +264,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "application": "f2py Numerical Kernel & Precision Workbench",
         "version": "2.1.0",
         "ieee754": run_ieee754_benchmark(),
-        "cmap_audit": evaluate_cmap_precision(include_real64_mapping=True),
+        "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
         "benchmark": run_performance_benchmark("dot_product", size=5000, iterations=15),
         "heat_pde": simulate_heat_pde(n=41, steps=35, alpha=0.01, pulse_type="gaussian"),
