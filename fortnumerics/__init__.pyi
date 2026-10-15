@@ -27,6 +27,21 @@ class _FortNumericsModule:
         b: float,
         c: float,
     ) -> Tuple[float, float, float, float, float]: ...
+    @staticmethod
+    def rk4harmonicstep(
+        steps: int,
+        dt: float,
+        omega0: float,
+        zeta: float,
+        x0: float,
+        v0: float,
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64], float]: ...
+    @staticmethod
+    def jacobipoisson2d(
+        iterations: int,
+        rhs: Union[Sequence[Sequence[float]], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float, float]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]
+

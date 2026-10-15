@@ -6,12 +6,12 @@ program fortran_workbench_cli
   use :: prod, only: ProdIntent, ProdPure, ProdInOut, ProdNoIntent, ProdVecIntent, ProdDotDp
   use :: badprec, only: pi32, pi64, pi64_true
   use :: precision_mod, only: compute_precision
-  use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare
+  use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
   implicit none
 
   character(len=64) :: arg
   integer :: argc
-  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad
+  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -20,6 +20,8 @@ program fortran_workbench_cli
   run_pde = .false.
   run_la = .false.
   run_quad = .false.
+  run_ode = .false.
+  run_pois = .false.
 
   if (argc > 0) then
     call get_command_argument(1, arg)
@@ -36,6 +38,10 @@ program fortran_workbench_cli
       run_la = .true.
     case ('--quad', '-q')
       run_quad = .true.
+    case ('--ode', '-o')
+      run_ode = .true.
+    case ('--poisson', '-2d')
+      run_pois = .true.
     case ('--help', '-h')
       call print_usage()
       stop 0
@@ -53,11 +59,13 @@ program fortran_workbench_cli
   if (run_all .or. run_pde)  call section_heat_pde()
   if (run_all .or. run_la)   call section_linalg()
   if (run_all .or. run_quad) call section_quadrature()
+  if (run_all .or. run_ode)  call section_ode()
+  if (run_all .or. run_pois) call section_poisson()
 
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson]'
   end subroutine print_usage
 
 
@@ -156,4 +164,30 @@ contains
     write(output_unit, '(a,f16.12,a,es12.4)') '  Integral: ', integral, '  Abs Error: ', abs(integral - exact_val)
   end subroutine section_quadrature
 
+
+  subroutine section_ode()
+    integer, parameter :: steps = 100
+    real(dp) :: x_traj(steps + 1), v_traj(steps + 1), final_energy
+
+    call Rk4HarmonicStep(steps, 0.05_dp, 2.0_dp, 0.15_dp, 1.0_dp, 0.0_dp, x_traj, v_traj, final_energy)
+    write(output_unit, '(/,a)') '[6] 4th-Order Runge-Kutta (RK4) Damped Oscillator (Rk4HarmonicStep)'
+    write(output_unit, '(a,f12.6,a,f12.6,a,es12.4)') &
+      '  x(T): ', x_traj(steps + 1), '  v(T): ', v_traj(steps + 1), '  Final Energy: ', final_energy
+  end subroutine section_ode
+
+
+  subroutine section_poisson()
+    integer, parameter :: n = 15, iters = 60
+    real(dp) :: rhs(n, n), u_out(n, n), max_res, l2_norm
+
+    rhs = 0.0_dp
+    rhs((n + 1) / 2, (n + 1) / 2) = 100.0_dp
+    call JacobiPoisson2D(n, iters, rhs, u_out, max_res, l2_norm)
+
+    write(output_unit, '(/,a)') '[7] 2D Poisson PDE Jacobi Relaxation (JacobiPoisson2D)'
+    write(output_unit, '(a,f12.6,a,es12.4,a,f12.6)') &
+      '  Center Potential: ', u_out((n + 1) / 2, (n + 1) / 2), '  Max Residual: ', max_res, '  L2 Norm: ', l2_norm
+  end subroutine section_poisson
+
 end program fortran_workbench_cli
+
