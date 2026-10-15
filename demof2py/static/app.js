@@ -57,10 +57,11 @@
       .replace(/"/g, "&quot;");
   }
 
-  // Toast Notification (Area 9 & 10)
+  // Toast Notification (Area 9 & 10 — single active toast to prevent stacking)
   function showToast(message) {
     const container = document.getElementById("toast-container");
     if (!container) return;
+    container.innerHTML = "";
     const item = document.createElement("div");
     item.className = "toast-item";
     item.innerHTML = `
@@ -72,7 +73,7 @@
     container.appendChild(item);
     setTimeout(() => {
       if (item.parentNode) item.parentNode.removeChild(item);
-    }, 2600);
+    }, 2200);
   }
 
   // Theme Management (Area 6)
