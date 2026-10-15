@@ -75,6 +75,19 @@ def test_fortnumerics_linalg_pde_quadrature_and_quadratic():
     assert r2_s == approx(-1.0e-8, rel=1e-12)
     assert cancel_err >= 0.0
 
+    x_traj, v_traj, final_energy = fortnumerics.rk4harmonicstep(100, 0.02, 2.0, 0.0, 1.0, 0.0)
+    assert len(x_traj) == 101
+    assert len(v_traj) == 101
+    assert final_energy == approx(2.0, rel=1e-5)
+
+    rhs2d = np.zeros((11, 11), dtype=np.float64, order="F")
+    rhs2d[5, 5] = 100.0
+    u_2d, max_res, l2_2d = fortnumerics.jacobipoisson2d(60, rhs2d)
+    assert u_2d.shape == (11, 11)
+    assert bool(u_2d.flags["F_CONTIGUOUS"]) is True
+    assert float(u_2d[5, 5]) > 0.0
+    assert l2_2d > 0.0
+
 
 def test_precision_and_cmap():
     assert badprec.pi32 == approx(3.1415927, rel=1e-6)
@@ -213,8 +226,40 @@ def test_fastapi_workbench_endpoints():
     assert native_data["exit_code"] == 0
     assert "Fortran 2008 Numerical Workbench" in native_data["stdout"]
 
+    rk4_resp = client.post(
+        "/api/v1/ode/rk4",
+        json={"steps": 100, "dt": 0.05, "omega0": 2.0, "zeta": 0.0},
+    )
+    assert rk4_resp.status_code == 200
+    rk4_data = rk4_resp.json()
+    assert rk4_data["energy_ratio"] == approx(1.0, rel=1e-4)
+
+    pois_resp = client.post(
+        "/api/v1/pde/poisson2d",
+        json={"n": 15, "iterations": 80, "source_type": "dipole"},
+    )
+    assert pois_resp.status_code == 200
+    pois_data = pois_resp.json()
+    assert pois_data["f_contiguous"] is True
+    assert pois_data["l2_norm"] > 0.0
+
+    cc_bad = client.post(
+        "/api/v1/diagnostics/compile-check",
+        json={"code": "      subroutine f(x)\n      real x ! bad inline\n      end", "filename": "bad.f"},
+    )
+    assert cc_bad.status_code == 200
+    assert cc_bad.json()["passed"] is False
+
+    cc_good = client.post(
+        "/api/v1/diagnostics/compile-check",
+        json={"code": "subroutine f(x)\n  implicit none\n  real, intent(in) :: x\nend subroutine f\n", "filename": "good.f90"},
+    )
+    assert cc_good.status_code == 200
+    assert cc_good.json()["passed"] is True
+
     index_page = client.get("/")
     assert index_page.status_code == 200
     assert "f2py Workbench" in index_page.text
+
 
 

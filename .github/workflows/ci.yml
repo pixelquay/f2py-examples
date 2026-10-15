@@ -26,6 +26,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[tests,lint]
 
-      - name: Run pytest suite
-        run: pytest -v
+      - name: Run pytest suite and CLI smoke checks
+        run: |
+          pytest -v
+          python -m demof2py.cli ode --steps 40 --zeta 0.15
+          python -m demof2py.cli poisson -n 11 --source dipole
+          python -m demof2py.cli audit --compile-check
+
+  fortran-native-meson:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gfortran, meson, and ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran meson ninja-build
+      - name: Build and test native Fortran 2008 targets
+        run: |
+          meson setup builddir
+          meson compile -C builddir
+          meson test -C builddir --verbose
+          ./builddir/fortran_workbench --all
+
 
