@@ -9,6 +9,7 @@ from .auditor import (
     build_markdown_pr_report,
     build_project_zip_bundle,
     build_sarif_report,
+    compile_and_execute_custom_fortran,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -32,7 +33,7 @@ from .benchmarks import (
     build_diagnostic_bundle,
 )
 
-__version__ = "7.0.0"
+__version__ = "8.0.0"
 
 __all__ = [
     "__version__",
@@ -46,6 +47,7 @@ __all__ = [
     "build_markdown_pr_report",
     "build_project_zip_bundle",
     "build_sarif_report",
+    "compile_and_execute_custom_fortran",
     "generate_f2py_build_scaffold",
     "load_project_presets",
     "modernize_f77_to_f2008",
