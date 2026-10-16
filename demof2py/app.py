@@ -29,9 +29,11 @@ from .benchmarks import (
     evaluate_quadratic_cancellation,
     run_native_fortran_cli,
     run_performance_benchmark,
+    simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_thomas_tridiag,
 )
 from .kernels import LIST_KERNELS, compare_all_intents, execute_kernel
 from .precision import run_ieee754_benchmark
@@ -138,8 +140,8 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg|ode|poisson)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, or poisson",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, or tridiag",
     )
 
 
@@ -157,6 +159,24 @@ class Poisson2DExploreRequest(BaseModel):
         default="dipole",
         pattern="^(dipole|central_charge|quadrupole)$",
         description="2D Poisson source distribution: dipole, central_charge, or quadrupole",
+    )
+
+
+class EigenExploreRequest(BaseModel):
+    preset: str = Field(
+        default="spd_stiffness",
+        pattern="^(spd_stiffness|coupled_oscillator|hilbert_3x3)$",
+        description="3x3 matrix preset for power iteration: spd_stiffness, coupled_oscillator, or hilbert_3x3",
+    )
+    iterations: int = Field(default=30, ge=5, le=200, description="Power iteration steps")
+
+
+class TridiagExploreRequest(BaseModel):
+    n: int = Field(default=21, ge=5, le=201, description="Tridiagonal system size N")
+    bc_type: str = Field(
+        default="catenary",
+        pattern="^(catenary|helmholtz_screened|boundary_drive)$",
+        description="Boundary-value problem type: catenary, helmholtz_screened, or boundary_drive",
     )
 
 
@@ -343,6 +363,24 @@ def post_explore_poisson2d(req: Poisson2DExploreRequest) -> Dict[str, Any]:
         n=req.n,
         iterations=req.iterations,
         source_type=req.source_type,
+    )
+
+
+@app.post("/api/v1/linalg/eigen")
+def post_explore_eigen(req: EigenExploreRequest) -> Dict[str, Any]:
+    """Execute the 3x3 Rayleigh-quotient dominant eigenpair solver (`PowerEigen3x3`)."""
+    return simulate_eigen_3x3(
+        preset=req.preset,
+        iterations=req.iterations,
+    )
+
+
+@app.post("/api/v1/linalg/tridiag")
+def post_explore_tridiag(req: TridiagExploreRequest) -> Dict[str, Any]:
+    """Execute the O(N) Thomas tridiagonal linear system solver (`ThomasTridiag`)."""
+    return simulate_thomas_tridiag(
+        n=req.n,
+        bc_type=req.bc_type,
     )
 
 

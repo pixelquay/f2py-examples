@@ -561,6 +561,110 @@ def simulate_poisson_2d(
     }
 
 
+def simulate_eigen_3x3(
+    preset: str = "spd_stiffness",
+    iterations: int = 30,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 Rayleigh-quotient dominant eigenpair solver (`PowerEigen3x3`)
+    and compare against LAPACK (`numpy.linalg.eig`).
+    """
+    iterations = max(5, min(int(iterations), 200))
+    if preset == "hilbert_3x3":
+        preset_label = "3×3 Hilbert Ill-Conditioned Matrix"
+        raw_a = [
+            [1.0, 1.0 / 2.0, 1.0 / 3.0],
+            [1.0 / 2.0, 1.0 / 3.0, 1.0 / 4.0],
+            [1.0 / 3.0, 1.0 / 4.0, 1.0 / 5.0],
+        ]
+    elif preset == "coupled_oscillator":
+        preset_label = "3-Mass Coupled Oscillator Matrix"
+        raw_a = [
+            [3.0, -1.5, 0.0],
+            [-1.5, 3.0, -1.5],
+            [0.0, -1.5, 3.0],
+        ]
+    else:
+        preset = "spd_stiffness"
+        preset_label = "3×3 SPD Discrete Laplacian Stiffness Matrix"
+        raw_a = [
+            [4.0, -1.0, 0.0],
+            [-1.0, 4.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ]
+
+    mat_a = np.array(raw_a, dtype=np.float64, order="F")
+    eigval, eigvec, res_norm = fortnumerics.powereigen3x3(mat_a, iterations)
+
+    np_vals, _ = np.linalg.eig(mat_a)
+    exact_max = float(np.max(np.abs(np_vals)))
+    abs_err = abs(float(eigval) - exact_max)
+
+    return {
+        "preset": preset,
+        "preset_label": preset_label,
+        "iterations": iterations,
+        "f_contiguous": bool(mat_a.flags["F_CONTIGUOUS"]),
+        "dominant_eigenvalue": round(float(eigval), 10),
+        "lapack_reference": round(exact_max, 10),
+        "abs_error_vs_lapack": float(f"{abs_err:.3e}"),
+        "residual_norm": float(f"{res_norm:.3e}"),
+        "eigenvector": [round(float(v), 6) for v in eigvec],
+    }
+
+
+def simulate_thomas_tridiag(
+    n: int = 21,
+    bc_type: str = "catenary",
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 O(N) Thomas algorithm (`ThomasTridiag`) for a tridiagonal
+    boundary-value system and compare against dense `numpy.linalg.solve`.
+    """
+    n = max(5, min(int(n), 201))
+    sub_d = np.full(n, -1.0, dtype=np.float64)
+    sub_d[0] = 0.0
+    main_d = np.full(n, 2.0, dtype=np.float64)
+    super_d = np.full(n, -1.0, dtype=np.float64)
+    super_d[-1] = 0.0
+
+    x_grid = np.linspace(0.0, 1.0, n)
+    h2 = (1.0 / max(1, n - 1)) ** 2
+
+    if bc_type == "helmholtz_screened":
+        bc_label = "Screened Helmholtz (2.25 on main diagonal)"
+        main_d = np.full(n, 2.25, dtype=np.float64)
+        rhs = np.sin(math.pi * x_grid)
+    elif bc_type == "boundary_drive":
+        bc_label = "Dirichlet Boundary Drive (b₁=1, bₙ=1)"
+        rhs = np.zeros(n, dtype=np.float64)
+        rhs[0] = 1.0
+        rhs[-1] = 1.0
+    else:
+        bc_type = "catenary"
+        bc_label = "Uniform Load Beam / Catenary (−u'' = 1)"
+        rhs = np.full(n, h2 * 8.0, dtype=np.float64)
+
+    x_out, res_inf = fortnumerics.thomastridiag(sub_d, main_d, super_d, rhs)
+
+    dense_t = np.diag(main_d) + np.diag(sub_d[1:], k=-1) + np.diag(super_d[:-1], k=1)
+    x_ref = np.linalg.solve(dense_t, rhs)
+    max_err_vs_dense = float(np.max(np.abs(x_out - x_ref)))
+    mid = n // 2
+
+    return {
+        "n": n,
+        "bc_type": bc_type,
+        "bc_label": bc_label,
+        "complexity": "O(N) TDMA (8N FLOPs)",
+        "center_value": round(float(x_out[mid]), 6),
+        "max_value": round(float(np.max(np.abs(x_out))), 6),
+        "residual_inf": float(f"{res_inf:.3e}"),
+        "max_err_vs_dense": float(f"{max_err_vs_dense:.3e}"),
+        "solution_preview": [round(float(v), 5) for v in x_out[:9]],
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -574,6 +678,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "linalg": "--linalg",
         "ode": "--ode",
         "poisson": "--poisson",
+        "eigen": "--eigen",
+        "tridiag": "--tridiag",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -604,15 +710,19 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     q_res = evaluate_quadratic_cancellation(1.0, 1.0e8, 1.0)
     ode_res = simulate_rk4_oscillator()
     pois_res = simulate_poisson_2d()
+    eig_res = simulate_eigen_3x3()
+    tri_res = simulate_thomas_tridiag()
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v3.0.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v4.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
         f"  RK4 ODE  : E_final = {ode_res['final_energy']:.6f}, peak |x| = {ode_res['peak_abs_x']:.6f}\n"
         f"  Poisson2D: ||r||_inf = {pois_res['max_residual']:.6e}, ||u||_L2 = {pois_res['l2_norm']:.6f}\n"
+        f"  Eigen3x3 : lambda_max = {eig_res['dominant_eigenvalue']:.6f}, ||Av-lv||_2 = {eig_res['residual_norm']:.2e}\n"
+        f"  ThomasTri: x_mid = {tri_res['center_value']:.6f}, ||Tx-b||_inf = {tri_res['residual_inf']:.2e}\n"
         "========================================================================"
     )
     return {
@@ -631,7 +741,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "3.0.0",
+        "version": "4.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -641,6 +751,8 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "quadratic_cancellation": evaluate_quadratic_cancellation(),
         "rk4_oscillator": simulate_rk4_oscillator(),
         "poisson_2d": simulate_poisson_2d(),
+        "eigen_3x3": simulate_eigen_3x3(),
+        "thomas_tridiag": simulate_thomas_tridiag(),
     }
 
 
