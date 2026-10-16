@@ -1392,6 +1392,10 @@
       outEl.textContent = (lastScaffoldData.rust_ffi_rs || "").trim();
     } else if (activeScaffoldTab === "julia") {
       outEl.textContent = (lastScaffoldData.julia_ccall_jl || "").trim();
+    } else if (activeScaffoldTab === "fpm") {
+      outEl.textContent = (lastScaffoldData.fpm_toml || "").trim();
+    } else if (activeScaffoldTab === "wasm") {
+      outEl.textContent = (lastScaffoldData.wasm_bridge_js || "").trim();
     } else {
       outEl.textContent = (lastScaffoldData.meson_build || "").trim();
     }
@@ -1711,6 +1715,148 @@
       showToast("Exported f2py-audit-benchmark-report.md");
     } catch (_err) {
       showToast("Failed to export Markdown report");
+    }
+  }
+
+  // Phase 29 (v7.0.0): SciML Auto-Diff V-Curve, Sparse CSR SpMV & SARIF 2.1.0 Exporter
+  let activeAdPoint = "-1.2_1.0";
+  let activeCsrBw = 1;
+
+  async function runAutoDiffLab(notify = false) {
+    try {
+      const parts = activeAdPoint.split("_");
+      const x = Number(parts[0] || -1.2);
+      const y = Number(parts[1] || 1.0);
+      const resp = await fetch("/api/v1/sciml/autodiff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x, y, a: 1.0, b: 100.0 }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderAutoDiffLab(data);
+      if (notify) {
+        const g = Array.isArray(data.exact_grad) ? data.exact_grad : [0, 0];
+        showToast(`Auto-Diff evaluated at (${data.x}, ${data.y}): Dual ∇f = (${g[0]}, ${g[1]})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderAutoDiffLab(data) {
+    if (!data) return;
+    const subEl = document.getElementById("autodiff-subtitle");
+    const badgeEl = document.getElementById("autodiff-badge");
+    const gradEl = document.getElementById("autodiff-grad-val");
+    const cancelEl = document.getElementById("autodiff-cancel-val");
+    const svgEl = document.getElementById("autodiff-svg-chart");
+    const grad = Array.isArray(data.exact_grad) ? data.exact_grad : [0, 0];
+
+    if (subEl) {
+      subEl.textContent = `2D Rosenbrock f(x, y) = ${Number(data.exact_value).toFixed(4)} at (${data.x}, ${data.y})`;
+    }
+    if (badgeEl) {
+      badgeEl.textContent = `Dual Error = ${Number(data.dual_autodiff_error).toFixed(1)} • Opt Central h* = ${Number(data.optimal_h_central).toExponential(0)}`;
+    }
+    if (gradEl) {
+      gradEl.textContent = `Dual ∇f = (${Number(grad[0]).toFixed(2)}, ${Number(grad[1]).toFixed(2)})`;
+    }
+    if (cancelEl) {
+      cancelEl.textContent = `Min Central FD Error = ${Number(data.min_central_fd_error).toExponential(2)} (h=1e-15 err: ${Number(data.cancellation_error_at_1e15).toExponential(2)})`;
+    }
+
+    const fwdLogs = Array.isArray(data.log10_forward_errors) ? data.log10_forward_errors.map(Number) : [];
+    const cenLogs = Array.isArray(data.log10_central_errors) ? data.log10_central_errors.map(Number) : [];
+    if (svgEl && fwdLogs.length > 1 && cenLogs.length > 1) {
+      const w = 420;
+      const h = 140;
+      const padX = 18;
+      const padY = 16;
+      const n = cenLogs.length;
+
+      const allLogs = [...fwdLogs, ...cenLogs];
+      const minLog = Math.min(-14, ...allLogs);
+      const maxLog = Math.max(4, ...allLogs);
+      const span = Math.max(1.0, maxLog - minLog);
+
+      const toPoint = (logVal, idx) => {
+        const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+        const py = h - padY - ((logVal - minLog) / span) * (h - 2 * padY);
+        return `${px.toFixed(1)},${py.toFixed(1)}`;
+      };
+
+      const fwdPoints = fwdLogs.map((val, idx) => toPoint(val, idx)).join(" ");
+      const cenPoints = cenLogs.map((val, idx) => toPoint(val, idx)).join(" ");
+
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+        <polyline fill="none" stroke="var(--text-muted)" stroke-width="1.8" stroke-dasharray="4 3" points="${fwdPoints}" />
+        <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.4" points="${cenPoints}" />
+      `;
+    }
+  }
+
+  async function runSparseCsrLab(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/linalg/sparse-csr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n: 64, bandwidth: activeCsrBw, diag_shift: 4.0 }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderSparseCsrLab(data);
+      if (notify) {
+        showToast(`Sparse CSR SpMV (k=${data.bandwidth}, nnz=${data.nnz}): ${data.compression_ratio}x Compression`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderSparseCsrLab(data) {
+    if (!data) return;
+    const badgeEl = document.getElementById("sparse-badge");
+    const dimEl = document.getElementById("sparse-dim-val");
+    const memEl = document.getElementById("sparse-mem-val");
+    const errEl = document.getElementById("sparse-err-val");
+    const tpEl = document.getElementById("sparse-throughput-note");
+
+    if (badgeEl) {
+      badgeEl.textContent = `${Number(data.compression_ratio).toFixed(2)}x Memory Compression`;
+    }
+    if (dimEl) {
+      dimEl.textContent = `nnz = ${data.nnz} / ${Number(data.dense_elements).toLocaleString()} (${Number(data.sparsity_percent).toFixed(2)}% Sparse)`;
+    }
+    if (memEl) {
+      memEl.textContent = `CSR = ${Number(data.csr_bytes).toLocaleString()} B vs Dense = ${Number(data.dense_bytes).toLocaleString()} B (${Number(data.memory_saved_percent).toFixed(2)}% Saved)`;
+    }
+    if (errEl) {
+      errEl.textContent = `${Number(data.max_err_vs_dense).toExponential(2)} • ||y||₂ = ${Number(data.l2_norm_y).toFixed(4)}`;
+    }
+    if (tpEl) {
+      tpEl.textContent = `${data.gflops} GFLOP/s • 1-Based Fortran CSR`;
+    }
+  }
+
+  async function exportSarifReport() {
+    try {
+      const resp = await fetch("/api/v1/export/report.sarif.json");
+      if (!resp.ok) return;
+      const sarifText = await resp.text();
+      const blob = new Blob([sarifText], { type: "application/sarif+json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "f2py-audit-report.sarif.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Exported f2py-audit-report.sarif.json (SARIF 2.1.0)");
+    } catch (_err) {
+      showToast("Failed to export SARIF 2.1.0 report");
     }
   }
 
@@ -2208,6 +2354,7 @@
     document.getElementById("export-report-btn")?.addEventListener("click", exportDiagnosticReport);
     document.getElementById("export-notebook-btn")?.addEventListener("click", exportJupyterNotebook);
     document.getElementById("export-md-btn")?.addEventListener("click", exportMarkdownReport);
+    document.getElementById("export-sarif-btn")?.addEventListener("click", exportSarifReport);
     document.getElementById("run-pde-btn")?.addEventListener("click", () => runPdeSimulation(true));
     document.getElementById("run-bench-btn")?.addEventListener("click", () => runLiveBenchmark(true));
 
@@ -2392,6 +2539,33 @@
     });
     document.getElementById("mc-run-btn")?.addEventListener("click", () => runMonteCarloLab(true));
 
+    // Phase 29 (v7.0.0): SciML Auto-Diff & Sparse CSR SpMV controls
+    document.querySelectorAll("[data-ad-point]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeAdPoint = btn.getAttribute("data-ad-point") || "-1.2_1.0";
+        document.querySelectorAll("[data-ad-point]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runAutoDiffLab(true);
+      });
+    });
+    document.getElementById("autodiff-run-btn")?.addEventListener("click", () => runAutoDiffLab(true));
+
+    document.querySelectorAll("[data-csr-bw]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeCsrBw = Number(btn.getAttribute("data-csr-bw") || 1);
+        document.querySelectorAll("[data-csr-bw]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runSparseCsrLab(true);
+      });
+    });
+    document.getElementById("sparse-run-btn")?.addEventListener("click", () => runSparseCsrLab(true));
+
     document.querySelectorAll("[data-scaffold-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         activeScaffoldTab = btn.getAttribute("data-scaffold-tab") || "meson";
@@ -2458,6 +2632,8 @@
       runBlackScholesLab(false),
       runSpectralLab(false),
       runMonteCarloLab(false),
+      runAutoDiffLab(false),
+      runSparseCsrLab(false),
     ]);
     await Promise.all([
       runGfortranVerify(false),

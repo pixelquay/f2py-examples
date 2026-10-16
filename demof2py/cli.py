@@ -13,6 +13,7 @@ import uvicorn
 from .auditor import (
     audit_fortran_source,
     build_markdown_pr_report,
+    build_sarif_report,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -22,12 +23,14 @@ from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
     run_performance_benchmark,
+    simulate_autodiff_vcurve,
     simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_montecarlo_option,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_sparse_csr_spmv,
     simulate_spectral_dft,
     simulate_thomas_tridiag,
 )
@@ -130,6 +133,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     mc_p.add_argument("--seed", type=int, default=42)
 
     sub.add_parser("report-md", help="Generate publication-ready GitHub Flavored Markdown audit & benchmark report")
+
+    ad_p = sub.add_parser("autodiff", help="Run Forward-Mode Dual-Number Auto-Diff vs FD V-curve (`AutoDiffRosenbrockDp`)")
+    ad_p.add_argument("-x", type=float, default=-1.2)
+    ad_p.add_argument("-y", type=float, default=1.0)
+
+    csr_p = sub.add_parser("sparse-csr", help="Run Compressed Sparse Row (CSR) SpMV kernel (`CsrSpmvDp`)")
+    csr_p.add_argument("-n", type=int, default=64)
+    csr_p.add_argument("--bandwidth", type=int, default=1)
+
+    sub.add_parser("report-sarif", help="Generate SARIF 2.1.0 static analysis report for GitHub Code Scanning")
 
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
@@ -273,6 +286,28 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "report-md":
         print(build_markdown_pr_report())
+        return 0
+
+    if args.command == "autodiff":
+        print(
+            json.dumps(
+                simulate_autodiff_vcurve(x=args.x, y=args.y),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "sparse-csr":
+        print(
+            json.dumps(
+                simulate_sparse_csr_spmv(n=args.n, bandwidth=args.bandwidth),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "report-sarif":
+        print(json.dumps(build_sarif_report(), indent=2))
         return 0
 
     if args.command == "scaffold":

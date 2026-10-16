@@ -22,6 +22,7 @@ from .auditor import (
     build_jupyter_notebook,
     build_markdown_pr_report,
     build_project_zip_bundle,
+    build_sarif_report,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -33,12 +34,14 @@ from .benchmarks import (
     evaluate_quadratic_cancellation,
     run_native_fortran_cli,
     run_performance_benchmark,
+    simulate_autodiff_vcurve,
     simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_montecarlo_option,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_sparse_csr_spmv,
     simulate_spectral_dft,
     simulate_thomas_tridiag,
 )
@@ -147,8 +150,8 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes|spectral|montecarlo)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, blackscholes, spectral, or montecarlo",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes|spectral|montecarlo|autodiff|sparse)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, blackscholes, spectral, montecarlo, autodiff, or sparse",
     )
 
 
@@ -210,6 +213,17 @@ class MonteCarloExploreRequest(BaseModel):
     sigma: float = Field(default=0.25, ge=0.05, le=1.5, description="Annualized volatility sigma")
     maturity: float = Field(default=1.0, ge=0.05, le=10.0, description="Time to maturity T (years)")
     seed: int = Field(default=42, ge=1, le=999999, description="Deterministic LCG random seed")
+
+
+class AutoDiffExploreRequest(BaseModel):
+    x: float = Field(default=-1.2, ge=-5.0, le=5.0, description="Rosenbrock evaluation coordinate x")
+    y: float = Field(default=1.0, ge=-5.0, le=5.0, description="Rosenbrock evaluation coordinate y")
+
+
+class SparseCsrExploreRequest(BaseModel):
+    n: int = Field(default=64, ge=8, le=256, description="Sparse operator dimension N x N")
+    bandwidth: int = Field(default=1, ge=1, le=4, description="Half-bandwidth k (1=tridiagonal, 2=pentadiagonal)")
+
 
 
 
@@ -454,6 +468,24 @@ def post_explore_montecarlo(req: MonteCarloExploreRequest) -> Dict[str, Any]:
     )
 
 
+@app.post("/api/v1/sciml/autodiff")
+def post_explore_autodiff(req: AutoDiffExploreRequest) -> Dict[str, Any]:
+    """Execute the Forward-Mode Dual-Number Auto-Diff vs Finite-Difference V-curve kernel (`AutoDiffRosenbrockDp`)."""
+    return simulate_autodiff_vcurve(
+        x=req.x,
+        y=req.y,
+    )
+
+
+@app.post("/api/v1/linalg/sparse-csr")
+def post_explore_sparse_csr(req: SparseCsrExploreRequest) -> Dict[str, Any]:
+    """Execute the Compressed Sparse Row (CSR) SpMV kernel (`CsrSpmvDp`)."""
+    return simulate_sparse_csr_spmv(
+        n=req.n,
+        bandwidth=req.bandwidth,
+    )
+
+
 @app.get("/api/v1/export/report")
 def get_export_report() -> Dict[str, Any]:
     """Export a full JSON diagnostic & benchmark report."""
@@ -471,6 +503,13 @@ def get_export_report_markdown() -> Response:
             "Content-Disposition": 'attachment; filename="f2py-audit-benchmark-report.md"',
         },
     )
+
+
+@app.get("/api/v1/export/report.sarif.json")
+def get_export_report_sarif() -> Dict[str, Any]:
+    """Export a SARIF 2.1.0 static analysis report for GitHub Code Scanning."""
+    return build_sarif_report()
+
 
 
 @app.get("/api/v1/export/notebook.ipynb")
