@@ -1,5 +1,5 @@
 project('f2py-examples', 'fortran',
-  version : '7.0.0',
+  version : '8.0.0',
   default_options : ['default_library=static', 'buildtype=release'])
 
 prod_lib = library('prod', 'prod.f90')

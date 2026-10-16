@@ -6,7 +6,7 @@ module fortnumerics
   private
   public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
   public :: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
-  public :: AutoDiffRosenbrockDp, CsrSpmvDp
+  public :: AutoDiffRosenbrockDp, CsrSpmvDp, CrankNicolson1D, NewtonSystem2D
 
 contains
 
@@ -490,7 +490,123 @@ contains
     compression_ratio = dense_bytes / max(1.0_dp, csr_bytes)
   end subroutine CsrSpmvDp
 
+
+  pure subroutine CrankNicolson1D(n, steps, alpha, dx, dt, u_init, u_final, cfl_number, max_err_vs_exact)
+    !! Unconditionally stable 2nd-order implicit Crank-Nicolson 1D Heat PDE solver:
+    !!   du/dt = alpha * d^2u/dx^2
+    !! Uses O(N) Thomas tridiagonal elimination at every time step so it remains
+    !! unconditionally stable even for large Courant numbers (CFL > 0.5) where
+    !! explicit Forward-Euler diverges.
+    integer, intent(in) :: n, steps
+    real(dp), intent(in) :: alpha, dx, dt
+    real(dp), intent(in) :: u_init(n)
+    real(dp), intent(out) :: u_final(n), cfl_number, max_err_vs_exact
+    real(dp) :: r, u_curr(n), rhs(n), c_star(n), d_star(n)
+    real(dp) :: main_d, sub_d, sup_d, denom, exact_u, x_coord, total_t
+    real(dp), parameter :: pi_dp = 3.14159265358979323846_dp
+    integer :: i, step_idx, m
+
+    cfl_number = alpha * dt / (dx * dx)
+    r = 0.5_dp * cfl_number
+    u_curr = u_init
+
+    if (n > 2 .and. steps > 0) then
+      main_d = 1.0_dp + 2.0_dp * r
+      sub_d = -r
+      sup_d = -r
+
+      do step_idx = 1, steps
+        do i = 2, n - 1
+          rhs(i) = r * u_curr(i - 1) + (1.0_dp - 2.0_dp * r) * u_curr(i) + r * u_curr(i + 1)
+        end do
+        rhs(2) = rhs(2) + r * u_curr(1)
+        rhs(n - 1) = rhs(n - 1) + r * u_curr(n)
+
+        c_star(2) = sup_d / main_d
+        d_star(2) = rhs(2) / main_d
+        do i = 3, n - 1
+          denom = main_d - sub_d * c_star(i - 1)
+          if (abs(denom) < 1.0e-15_dp) denom = sign(1.0e-15_dp, denom)
+          c_star(i) = sup_d / denom
+          d_star(i) = (rhs(i) - sub_d * d_star(i - 1)) / denom
+        end do
+
+        u_curr(n - 1) = d_star(n - 1)
+        do m = n - 2, 2, -1
+          u_curr(m) = d_star(m) - c_star(m) * u_curr(m + 1)
+        end do
+      end do
+    end if
+
+    u_final = u_curr
+    total_t = real(max(0, steps), dp) * dt
+    max_err_vs_exact = 0.0_dp
+    do i = 1, n
+      x_coord = real(i - 1, dp) / real(max(1, n - 1), dp)
+      exact_u = sin(pi_dp * x_coord) * exp(-alpha * pi_dp * pi_dp * total_t)
+      max_err_vs_exact = max(max_err_vs_exact, abs(u_final(i) - exact_u))
+    end do
+  end subroutine CrankNicolson1D
+
+
+  pure subroutine NewtonSystem2D(x0, y0, r_circle, max_iters, tol, x_root, y_root, traj_x, traj_y, res_hist, iters_taken)
+    !! 2D Coupled Nonlinear System Solver via Quadratic-Convergence Newton-Raphson:
+    !!   f1(x, y) = x^2 + y^2 - R^2 = 0
+    !!   f2(x, y) = x^3 - y         = 0
+    !! Uses analytical 2x2 Jacobian J(x,y) = [[2x, 2y], [3x^2, -1]] and tracks
+    !! the full iteration trajectory and L2 residual norm ||F(x_k)||_2.
+    real(dp), intent(in) :: x0, y0, r_circle, tol
+    integer, intent(in) :: max_iters
+    real(dp), intent(out) :: x_root, y_root
+    real(dp), intent(out) :: traj_x(max_iters + 1), traj_y(max_iters + 1), res_hist(max_iters + 1)
+    integer, intent(out) :: iters_taken
+    real(dp) :: x, y, f1, f2, det_j, dx, dy, res_norm
+    integer :: k, j
+
+    x = x0
+    y = y0
+    if (abs(x) < 1.0e-12_dp .and. abs(y) < 1.0e-12_dp) then
+      x = 0.5_dp
+      y = 0.5_dp
+    end if
+
+    iters_taken = 0
+    do k = 1, max_iters
+      f1 = x * x + y * y - r_circle * r_circle
+      f2 = x * x * x - y
+      res_norm = hypot(f1, f2)
+      traj_x(k) = x
+      traj_y(k) = y
+      res_hist(k) = max(1.0e-16_dp, res_norm)
+
+      if (res_norm <= tol) then
+        do j = k + 1, max_iters + 1
+          traj_x(j) = x
+          traj_y(j) = y
+          res_hist(j) = max(1.0e-16_dp, res_norm)
+        end do
+        x_root = x
+        y_root = y
+        return
+      end if
+
+      det_j = -2.0_dp * x - 6.0_dp * x * x * y
+      if (abs(det_j) < 1.0e-14_dp) det_j = -1.0e-14_dp
+      dx = (f1 + 2.0_dp * y * f2) / det_j
+      dy = (3.0_dp * x * x * f1 - 2.0_dp * x * f2) / det_j
+      x = x + dx
+      y = y + dy
+      iters_taken = k
+    end do
+
+    f1 = x * x + y * y - r_circle * r_circle
+    f2 = x * x * x - y
+    res_norm = hypot(f1, f2)
+    traj_x(max_iters + 1) = x
+    traj_y(max_iters + 1) = y
+    res_hist(max_iters + 1) = max(1.0e-16_dp, res_norm)
+    x_root = x
+    y_root = y
+  end subroutine NewtonSystem2D
+
 end module fortnumerics
-
-
-

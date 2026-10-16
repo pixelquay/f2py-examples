@@ -520,9 +520,126 @@ class _FortNumericsModule:
         compression_ratio = dense_bytes / max(1.0, csr_bytes)
         return y_sparse, max_err, float(compression_ratio)
 
+    @staticmethod
+    def cranknicolson1d(
+        steps: int,
+        alpha: float,
+        dx: float,
+        dt: float,
+        u_init: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float, float]:
+        """
+        Subroutine CrankNicolson1D(n, steps, alpha, dx, dt, u_init, u_final, cfl_number, max_err_vs_exact)
+        Unconditionally stable 2nd-order implicit Crank-Nicolson 1D Heat PDE solver
+        using O(N) Thomas tridiagonal elimination at each time step.
+        """
+        u0 = np.asarray(u_init, dtype=np.float64, order="F").ravel()
+        n = int(u0.shape[0])
+        steps_int = int(max(0, steps))
+        alpha_f = float(alpha)
+        dx_f = float(dx)
+        dt_f = float(dt)
+
+        cfl_number = float(alpha_f * dt_f / (dx_f * dx_f))
+        r = 0.5 * cfl_number
+        u_curr = u0.copy(order="F")
+
+        if n > 2 and steps_int > 0:
+            main_d = 1.0 + 2.0 * r
+            sub_d = -r
+            sup_d = -r
+            rhs = np.zeros(n, dtype=np.float64)
+            c_star = np.zeros(n, dtype=np.float64)
+            d_star = np.zeros(n, dtype=np.float64)
+
+            for _ in range(steps_int):
+                for i in range(1, n - 1):
+                    rhs[i] = r * u_curr[i - 1] + (1.0 - 2.0 * r) * u_curr[i] + r * u_curr[i + 1]
+                rhs[1] += r * u_curr[0]
+                rhs[n - 2] += r * u_curr[n - 1]
+
+                c_star[1] = sup_d / main_d
+                d_star[1] = rhs[1] / main_d
+                for i in range(2, n - 1):
+                    denom = main_d - sub_d * c_star[i - 1]
+                    if abs(denom) < 1e-15:
+                        denom = 1e-15 if denom >= 0.0 else -1e-15
+                    c_star[i] = sup_d / denom
+                    d_star[i] = (rhs[i] - sub_d * d_star[i - 1]) / denom
+
+                u_curr[n - 2] = d_star[n - 2]
+                for m in range(n - 3, 0, -1):
+                    u_curr[m] = d_star[m] - c_star[m] * u_curr[m + 1]
+
+        u_final = np.array(u_curr, dtype=np.float64, order="F")
+        total_t = float(steps_int) * dt_f
+        x_coords = np.linspace(0.0, 1.0, n, dtype=np.float64)
+        exact_u = np.sin(np.pi * x_coords) * np.exp(-alpha_f * (np.pi ** 2) * total_t)
+        max_err = float(np.max(np.abs(u_final - exact_u))) if n > 0 else 0.0
+        return u_final, cfl_number, max_err
+
+    @staticmethod
+    def newtonsystem2d(
+        x0: float,
+        y0: float,
+        r_circle: float = 1.0,
+        max_iters: int = 15,
+        tol: float = 1e-14,
+    ) -> Tuple[float, float, NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], int]:
+        """
+        Subroutine NewtonSystem2D(x0, y0, r_circle, max_iters, tol, x_root, y_root, traj_x, traj_y, res_hist, iters_taken)
+        2D Coupled Nonlinear System Solver via Quadratic-Convergence Newton-Raphson:
+          f1(x, y) = x^2 + y^2 - R^2 = 0
+          f2(x, y) = x^3 - y         = 0
+        """
+        x = float(x0)
+        y = float(y0)
+        r_val = float(r_circle)
+        max_k = max(1, int(max_iters))
+        tol_val = max(1e-16, float(tol))
+
+        if abs(x) < 1e-12 and abs(y) < 1e-12:
+            x = 0.5
+            y = 0.5
+
+        traj_x = np.zeros(max_k + 1, dtype=np.float64, order="F")
+        traj_y = np.zeros(max_k + 1, dtype=np.float64, order="F")
+        res_hist = np.zeros(max_k + 1, dtype=np.float64, order="F")
+        iters_taken = 0
+
+        for k in range(max_k):
+            f1 = x * x + y * y - r_val * r_val
+            f2 = x * x * x - y
+            res_norm = float(np.hypot(f1, f2))
+            traj_x[k] = x
+            traj_y[k] = y
+            res_hist[k] = max(1e-16, res_norm)
+
+            if res_norm <= tol_val:
+                for j in range(k + 1, max_k + 1):
+                    traj_x[j] = x
+                    traj_y[j] = y
+                    res_hist[j] = max(1e-16, res_norm)
+                return float(x), float(y), traj_x, traj_y, res_hist, int(iters_taken)
+
+            det_j = -2.0 * x - 6.0 * x * x * y
+            if abs(det_j) < 1e-14:
+                det_j = -1e-14
+            dx = (f1 + 2.0 * y * f2) / det_j
+            dy = (3.0 * x * x * f1 - 2.0 * x * f2) / det_j
+            x += dx
+            y += dy
+            iters_taken = k + 1
+
+        f1 = x * x + y * y - r_val * r_val
+        f2 = x * x * x - y
+        res_norm = float(np.hypot(f1, f2))
+        traj_x[max_k] = x
+        traj_y[max_k] = y
+        res_hist[max_k] = max(1e-16, res_norm)
+        return float(x), float(y), traj_x, traj_y, res_hist, int(iters_taken)
+
 
 fortnumerics = _FortNumericsModule()
 
 __all__ = ["fortnumerics"]
-
-
