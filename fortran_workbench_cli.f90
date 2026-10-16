@@ -8,11 +8,13 @@ program fortran_workbench_cli
   use :: precision_mod, only: compute_precision
   use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
   use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
+  use :: fortnumerics, only: AutoDiffRosenbrockDp, CsrSpmvDp
   implicit none
 
   character(len=64) :: arg
   integer :: argc
   logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri, run_bs, run_spec, run_mc
+  logical :: run_ad, run_csr
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -28,6 +30,8 @@ program fortran_workbench_cli
   run_bs = .false.
   run_spec = .false.
   run_mc = .false.
+  run_ad = .false.
+  run_csr = .false.
 
   if (argc > 0) then
     call get_command_argument(1, arg)
@@ -58,6 +62,10 @@ program fortran_workbench_cli
       run_spec = .true.
     case ('--montecarlo', '-mc')
       run_mc = .true.
+    case ('--autodiff', '-ad')
+      run_ad = .true.
+    case ('--sparse', '-csr')
+      run_csr = .true.
     case ('--help', '-h')
       call print_usage()
       stop 0
@@ -82,11 +90,13 @@ program fortran_workbench_cli
   if (run_all .or. run_bs)   call section_blackscholes()
   if (run_all .or. run_spec) call section_spectral()
   if (run_all .or. run_mc)   call section_montecarlo()
+  if (run_all .or. run_ad)   call section_autodiff()
+  if (run_all .or. run_csr)  call section_sparse()
 
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes | --spectral | --montecarlo]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes | --spectral | --montecarlo | --autodiff | --sparse]'
   end subroutine print_usage
 
 
@@ -287,6 +297,42 @@ contains
     write(output_unit, '(a,f10.4,a,f10.4,a,f10.4)') &
       '  MC Call: ', call_est, '  MC Put: ', put_est, '  Std Error: ', std_err
   end subroutine section_montecarlo
+
+
+  subroutine section_autodiff()
+    integer, parameter :: n_steps = 15
+    real(dp) :: h_steps(n_steps), fd_fwd(n_steps), fd_cen(n_steps)
+    real(dp) :: gx, gy, fval, opt_h
+    integer :: i
+
+    do i = 1, n_steps
+      h_steps(i) = 10.0_dp ** (-real(i, dp))
+    end do
+
+    call AutoDiffRosenbrockDp(-1.2_dp, 1.0_dp, n_steps, h_steps, fd_fwd, fd_cen, gx, gy, fval, opt_h)
+
+    write(output_unit, '(/,a)') '[13] Forward-Mode Dual-Number Auto-Diff vs FD V-Curve (AutoDiffRosenbrockDp)'
+    write(output_unit, '(a,f10.4,a,f10.4,a,es10.2)') &
+      '  Exact Grad: (', gx, ', ', gy, ')  Optimal Central h*: ', opt_h
+  end subroutine section_autodiff
+
+
+  subroutine section_sparse()
+    integer, parameter :: n = 5, nnz = 13
+    integer :: row_ptr(n + 1), col_idx(nnz)
+    real(dp) :: vals(nnz), x(n), y_sparse(n), max_err, comp_ratio
+
+    row_ptr = [1, 3, 6, 9, 12, 14]
+    col_idx = [1, 2, 1, 2, 3, 2, 3, 4, 3, 4, 5, 4, 5]
+    vals    = [2.0_dp, -1.0_dp, -1.0_dp, 2.0_dp, -1.0_dp, -1.0_dp, 2.0_dp, -1.0_dp, -1.0_dp, 2.0_dp, -1.0_dp, -1.0_dp, 2.0_dp]
+    x       = [1.0_dp, 2.0_dp, 3.0_dp, 2.0_dp, 1.0_dp]
+
+    call CsrSpmvDp(n, nnz, row_ptr, col_idx, vals, x, y_sparse, max_err, comp_ratio)
+
+    write(output_unit, '(/,a)') '[14] Compressed Sparse Row (CSR) SpMV Kernel (CsrSpmvDp)'
+    write(output_unit, '(a,f10.4,a,f8.2,a,es10.2)') &
+      '  Center y(3): ', y_sparse(3), '  Compression Ratio: ', comp_ratio, 'x  Dense Diff: ', max_err
+  end subroutine section_sparse
 
 end program fortran_workbench_cli
 

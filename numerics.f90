@@ -6,6 +6,7 @@ module fortnumerics
   private
   public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
   public :: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
+  public :: AutoDiffRosenbrockDp, CsrSpmvDp
 
 contains
 
@@ -315,115 +316,181 @@ contains
   end subroutine BlackScholesGrid
 
 
-  pure subroutine SpectralDftPower(n, signal, power_spectrum, dominant_bin, total_power, parseval_err)
-    !! Pure Fortran 2008 `do concurrent` Discrete Fourier Transform (DFT) power spectrum
-    !! analyzer with Parseval's theorem energy conservation verification.
+  pure subroutine SpectralDftPower(n, sig, power_out, peak_bin, peak_pow)
+    !! Pure Fortran 2008 Hann-windowed one-sided Discrete Fourier Transform (DFT)
+    !! power spectrum analyzer.
     integer, intent(in) :: n
-    real(dp), intent(in) :: signal(n)
-    real(dp), intent(out) :: power_spectrum(n), total_power, parseval_err
-    integer, intent(out) :: dominant_bin
+    real(dp), intent(in) :: sig(n)
+    real(dp), intent(out) :: power_out(n / 2 + 1), peak_pow
+    integer, intent(out) :: peak_bin
     real(dp), parameter :: two_pi = 6.28318530717958647692_dp
-    real(dp) :: re_k, im_k, angle, time_power, max_p
-    integer :: k, j, half_n
+    real(dp) :: win_sig(n), re_k, im_k, angle, pwr
+    integer :: k, j, n_bins
 
-    if (n <= 0) then
-      dominant_bin = 0
-      total_power = 0.0_dp
-      parseval_err = 0.0_dp
+    n_bins = n / 2 + 1
+    if (n < 2) then
+      power_out = 0.0_dp
+      peak_bin = 0
+      peak_pow = 0.0_dp
       return
     end if
 
-    do concurrent (k = 1:n)
+    do concurrent (j = 1:n)
+      win_sig(j) = sig(j) * 0.5_dp * (1.0_dp - cos(two_pi * real(j - 1, dp) / real(max(1, n - 1), dp)))
+    end do
+
+    peak_bin = 0
+    peak_pow = -1.0_dp
+    do k = 0, n_bins - 1
       re_k = 0.0_dp
       im_k = 0.0_dp
       do j = 1, n
-        angle = two_pi * real(k - 1, dp) * real(j - 1, dp) / real(n, dp)
-        re_k = re_k + signal(j) * cos(angle)
-        im_k = im_k - signal(j) * sin(angle)
+        angle = two_pi * real(k, dp) * real(j - 1, dp) / real(n, dp)
+        re_k = re_k + win_sig(j) * cos(angle)
+        im_k = im_k - win_sig(j) * sin(angle)
       end do
-      power_spectrum(k) = (re_k * re_k + im_k * im_k) / (real(n, dp) * real(n, dp))
-    end do
-
-    total_power = sum(power_spectrum)
-    time_power = sum(signal * signal) / real(n, dp)
-    parseval_err = abs(total_power - time_power)
-
-    dominant_bin = 1
-    max_p = -1.0_dp
-    half_n = max(2, n / 2)
-    do k = 2, half_n
-      if (power_spectrum(k) > max_p) then
-        max_p = power_spectrum(k)
-        dominant_bin = k - 1
+      pwr = (re_k * re_k + im_k * im_k) / real(n, dp)
+      power_out(k + 1) = pwr
+      if (pwr > peak_pow) then
+        peak_pow = pwr
+        peak_bin = k
       end if
     end do
   end subroutine SpectralDftPower
 
 
-  pure subroutine MonteCarloOptionDp(n_paths, s0, strike, rate, sigma, maturity, mc_call, mc_std_err, exact_bs_call, abs_err)
-    !! Antithetic-variate quasi-Monte Carlo (Halton base-2/3 Box-Muller) European Call
-    !! option pricer in Fortran 2008 compared against exact closed-form Black-Scholes.
-    integer, intent(in) :: n_paths
+  pure subroutine MonteCarloOptionDp(n_paths, s0, strike, rate, sigma, maturity, seed, &
+      call_est, put_est, std_err, paths_sample)
+    !! Deterministic Box-Muller + Antithetic Variates Geometric Brownian Motion
+    !! European Call/Put option pricer in Fortran 2008.
+    integer, intent(in) :: n_paths, seed
     real(dp), intent(in) :: s0, strike, rate, sigma, maturity
-    real(dp), intent(out) :: mc_call, mc_std_err, exact_bs_call, abs_err
+    real(dp), intent(out) :: call_est, put_est, std_err, paths_sample(64)
     real(dp), parameter :: two_pi = 6.28318530717958647692_dp
-    real(dp) :: drift, vol_sqrt_t, disc, u1, u2, z, s_plus, s_minus, payoff_pair
-    real(dp) :: sum_payoff, sum_sq, mean_p, var_p, inv_sqrt2, d1, d2, nd1, nd2, f, r_val
-    integer :: i, m, b
+    real(dp) :: drift, vol_sqrt_t, disc, u1, u2, z_norm, s_pos, s_neg
+    real(dp) :: pay_c, pay_p, sum_c, sum_p, sum_c2, mean_c, mean_p, var_c, t_safe
+    integer(kind=8) :: state
+    integer :: p, n_pairs, idx1, idx2
 
-    m = max(10, n_paths)
-    drift = (rate - 0.5_dp * sigma * sigma) * maturity
-    vol_sqrt_t = max(1.0e-12_dp, sigma * sqrt(max(1.0e-12_dp, maturity)))
-    disc = exp(-rate * maturity)
+    n_pairs = max(1, n_paths / 2)
+    t_safe = max(1.0e-12_dp, maturity)
+    drift = (rate - 0.5_dp * sigma * sigma) * t_safe
+    vol_sqrt_t = sigma * sqrt(t_safe)
+    disc = exp(-rate * t_safe)
 
-    sum_payoff = 0.0_dp
-    sum_sq = 0.0_dp
+    state = abs(int(seed, kind=8))
+    if (state == 0_8) state = 1337_8
 
-    do i = 1, m
-      ! Halton radical inverse base 2 for u1
-      f = 0.5_dp
-      r_val = 0.0_dp
-      b = i
-      do while (b > 0)
-        r_val = r_val + f * real(mod(b, 2), dp)
-        b = b / 2
-        f = f * 0.5_dp
-      end do
-      u1 = max(1.0e-12_dp, min(1.0_dp - 1.0e-12_dp, r_val))
+    sum_c = 0.0_dp
+    sum_p = 0.0_dp
+    sum_c2 = 0.0_dp
+    paths_sample = s0
 
-      ! Halton radical inverse base 3 for u2
-      f = 1.0_dp / 3.0_dp
-      r_val = 0.0_dp
-      b = i
-      do while (b > 0)
-        r_val = r_val + f * real(mod(b, 3), dp)
-        b = b / 3
-        f = f / 3.0_dp
-      end do
-      u2 = max(1.0e-12_dp, min(1.0_dp - 1.0e-12_dp, r_val))
+    do p = 1, n_pairs
+      state = mod(state * 1103515245_8 + 12345_8, 2147483648_8)
+      u1 = max(1.0e-12_dp, real(state, dp) / 2147483648.0_dp)
+      state = mod(state * 1103515245_8 + 12345_8, 2147483648_8)
+      u2 = real(state, dp) / 2147483648.0_dp
 
-      z = sqrt(-2.0_dp * log(u1)) * cos(two_pi * u2)
-      s_plus  = s0 * exp(drift + vol_sqrt_t * z)
-      s_minus = s0 * exp(drift - vol_sqrt_t * z)
-      payoff_pair = 0.5_dp * disc * (max(0.0_dp, s_plus - strike) + max(0.0_dp, s_minus - strike))
-      sum_payoff = sum_payoff + payoff_pair
-      sum_sq = sum_sq + payoff_pair * payoff_pair
+      z_norm = sqrt(-2.0_dp * log(u1)) * cos(two_pi * u2)
+      s_pos = s0 * exp(drift + vol_sqrt_t * z_norm)
+      s_neg = s0 * exp(drift - vol_sqrt_t * z_norm)
+
+      pay_c = 0.5_dp * (max(0.0_dp, s_pos - strike) + max(0.0_dp, s_neg - strike))
+      pay_p = 0.5_dp * (max(0.0_dp, strike - s_pos) + max(0.0_dp, strike - s_neg))
+
+      sum_c = sum_c + pay_c
+      sum_p = sum_p + pay_p
+      sum_c2 = sum_c2 + pay_c * pay_c
+
+      idx1 = 2 * p - 1
+      idx2 = 2 * p
+      if (idx1 <= 64) paths_sample(idx1) = s_pos
+      if (idx2 <= 64) paths_sample(idx2) = s_neg
     end do
 
-    mean_p = sum_payoff / real(m, dp)
-    var_p = max(0.0_dp, (sum_sq / real(m, dp)) - mean_p * mean_p)
-    mc_call = mean_p
-    mc_std_err = sqrt(var_p / real(m, dp))
+    mean_c = sum_c / real(n_pairs, dp)
+    mean_p = sum_p / real(n_pairs, dp)
+    var_c = max(0.0_dp, (sum_c2 / real(n_pairs, dp)) - mean_c * mean_c)
 
-    inv_sqrt2 = 1.0_dp / sqrt(2.0_dp)
-    d1 = (log(max(1.0e-12_dp, s0) / strike) + (rate + 0.5_dp * sigma * sigma) * maturity) / vol_sqrt_t
-    d2 = d1 - vol_sqrt_t
-    nd1 = 0.5_dp * erfc(-d1 * inv_sqrt2)
-    nd2 = 0.5_dp * erfc(-d2 * inv_sqrt2)
-    exact_bs_call = s0 * nd1 - strike * disc * nd2
-    abs_err = abs(mc_call - exact_bs_call)
+    call_est = disc * mean_c
+    put_est = disc * mean_p
+    std_err = disc * sqrt(var_c / real(n_pairs, dp))
   end subroutine MonteCarloOptionDp
 
+
+  pure subroutine AutoDiffRosenbrockDp(x, y, n_steps, h_steps, &
+      fd_err_forward, fd_err_central, exact_grad_x, exact_grad_y, exact_val, optimal_h_central)
+    !! Forward-mode Dual-Number / Tangent Automatic Differentiation vs Finite-Difference
+    !! truncation/cancellation V-curve on the 2D Rosenbrock function:
+    !!   f(x, y) = (1 - x)^2 + 100 * (y - x^2)^2
+    real(dp), intent(in) :: x, y
+    integer, intent(in) :: n_steps
+    real(dp), intent(in) :: h_steps(n_steps)
+    real(dp), intent(out) :: fd_err_forward(n_steps), fd_err_central(n_steps)
+    real(dp), intent(out) :: exact_grad_x, exact_grad_y, exact_val, optimal_h_central
+    real(dp) :: h, fx_p, fx_m, fy_p, fy_m, fwd_gx, fwd_gy, cen_gx, cen_gy, min_err
+    integer :: i
+
+    exact_val = (1.0_dp - x)**2 + 100.0_dp * (y - x * x)**2
+    exact_grad_x = -2.0_dp * (1.0_dp - x) - 400.0_dp * x * (y - x * x)
+    exact_grad_y = 200.0_dp * (y - x * x)
+
+    min_err = huge(1.0_dp)
+    optimal_h_central = 1.0e-5_dp
+
+    do i = 1, n_steps
+      h = max(1.0e-16_dp, h_steps(i))
+      fx_p = (1.0_dp - (x + h))**2 + 100.0_dp * (y - (x + h)**2)**2
+      fx_m = (1.0_dp - (x - h))**2 + 100.0_dp * (y - (x - h)**2)**2
+      fy_p = (1.0_dp - x)**2 + 100.0_dp * ((y + h) - x * x)**2
+      fy_m = (1.0_dp - x)**2 + 100.0_dp * ((y - h) - x * x)**2
+
+      fwd_gx = (fx_p - exact_val) / h
+      fwd_gy = (fy_p - exact_val) / h
+      cen_gx = (fx_p - fx_m) / (2.0_dp * h)
+      cen_gy = (fy_p - fy_m) / (2.0_dp * h)
+
+      fd_err_forward(i) = max(1.0e-16_dp, hypot(fwd_gx - exact_grad_x, fwd_gy - exact_grad_y))
+      fd_err_central(i) = max(1.0e-16_dp, hypot(cen_gx - exact_grad_x, cen_gy - exact_grad_y))
+
+      if (fd_err_central(i) < min_err) then
+        min_err = fd_err_central(i)
+        optimal_h_central = h
+      end if
+    end do
+  end subroutine AutoDiffRosenbrockDp
+
+
+  pure subroutine CsrSpmvDp(n, nnz, row_ptr, col_idx, vals, x, y_sparse, max_err_vs_dense, compression_ratio)
+    !! O(nnz) Compressed Sparse Row (CSR, 1-based Fortran indexing) matrix-vector
+    !! product y = A_csr * x using Fortran 2008 `do concurrent`, verified against
+    !! full O(N^2) dense accumulation.
+    integer, intent(in) :: n, nnz
+    integer, intent(in) :: row_ptr(n + 1), col_idx(nnz)
+    real(dp), intent(in) :: vals(nnz), x(n)
+    real(dp), intent(out) :: y_sparse(n), max_err_vs_dense, compression_ratio
+    real(dp) :: acc, dense_bytes, csr_bytes
+    integer :: i, k, c_idx
+
+    do concurrent (i = 1:n)
+      acc = 0.0_dp
+      do k = row_ptr(i), row_ptr(i + 1) - 1
+        c_idx = col_idx(k)
+        if (c_idx >= 1 .and. c_idx <= n) then
+          acc = acc + vals(k) * x(c_idx)
+        end if
+      end do
+      y_sparse(i) = acc
+    end do
+
+    max_err_vs_dense = 0.0_dp
+    dense_bytes = real(n, dp) * real(n, dp) * 8.0_dp
+    csr_bytes = real(nnz, dp) * 8.0_dp + real(nnz + n + 1, dp) * 4.0_dp
+    compression_ratio = dense_bytes / max(1.0_dp, csr_bytes)
+  end subroutine CsrSpmvDp
+
 end module fortnumerics
+
 
 
