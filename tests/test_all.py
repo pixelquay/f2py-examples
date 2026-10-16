@@ -5,7 +5,12 @@ from pytest import approx
 
 from badprec import badprec
 from demof2py.app import app
-from demof2py.auditor import audit_fortran_source, load_project_presets
+from demof2py.auditor import (
+    audit_fortran_source,
+    generate_f2py_build_scaffold,
+    load_project_presets,
+)
+from demof2py.cli import main as cli_main
 from demof2py.precision import run_ieee754_benchmark
 from fortnumerics import fortnumerics
 from pyprod import prod
@@ -257,9 +262,80 @@ def test_fastapi_workbench_endpoints():
     assert cc_good.status_code == 200
     assert cc_good.json()["passed"] is True
 
+    eigen_resp = client.post(
+        "/api/v1/linalg/eigen",
+        json={"preset": "spd_stiffness", "iterations": 60},
+    )
+    assert eigen_resp.status_code == 200
+    eigen_data = eigen_resp.json()
+    assert eigen_data["abs_error_vs_lapack"] < 1e-10
+    assert eigen_data["residual_norm"] < 1e-9
+    assert len(eigen_data["eigenvector"]) == 3
+
+    tridiag_resp = client.post(
+        "/api/v1/linalg/tridiag",
+        json={"n": 21, "bc_type": "catenary"},
+    )
+    assert tridiag_resp.status_code == 200
+    tridiag_data = tridiag_resp.json()
+    assert tridiag_data["residual_inf"] < 1e-11
+    assert tridiag_data["max_err_vs_dense"] < 1e-11
+    assert len(tridiag_data["solution_preview"]) == 9
+
+    scaffold_resp = client.post(
+        "/api/v1/diagnostics/scaffold",
+        json={
+            "code": "module fortnumerics\ncontains\nsubroutine f(x, y)\n  implicit none\n  real, intent(in) :: x\n  real, intent(out) :: y\n  y = x * 2.0\nend subroutine f\nend module fortnumerics\n",
+            "filename": "numerics.f90",
+            "module_name": "fortnumerics",
+        },
+    )
+    assert scaffold_resp.status_code == 200
+    scaf = scaffold_resp.json()
+    assert "python module fortnumerics" in scaf["pyf_signature"]
+    assert "py.extension_module" in scaf["meson_build"]
+    assert "cmake_minimum_required" in scaf["cmake_lists"]
+    assert "numpy.f2py" in scaf["cli_compile_cmd"]
+
     index_page = client.get("/")
     assert index_page.status_code == 200
     assert "f2py Workbench" in index_page.text
 
 
+def test_v4_eigen_tridiag_scaffold_and_cli():
+    a = np.array(
+        [[4.0, -1.0, 0.0], [-1.0, 4.0, -1.0], [0.0, -1.0, 4.0]],
+        dtype=np.float64,
+        order="F",
+    )
+    eigval, eigvec, res_norm = fortnumerics.powereigen3x3(a, 80)
+    assert eigval == approx(4.0 + np.sqrt(2.0), rel=1e-12)
+    assert res_norm < 1e-11
+    assert np.linalg.norm(eigvec) == approx(1.0, rel=1e-12)
 
+    n = 15
+    sub_d = np.full(n, -1.0, dtype=np.float64)
+    sub_d[0] = 0.0
+    main_d = np.full(n, 2.0, dtype=np.float64)
+    super_d = np.full(n, -1.0, dtype=np.float64)
+    super_d[-1] = 0.0
+    rhs = np.ones(n, dtype=np.float64)
+    x_out, res_inf = fortnumerics.thomastridiag(sub_d, main_d, super_d, rhs)
+    assert len(x_out) == n
+    assert res_inf < 1e-12
+
+    presets = {p["filename"]: p for p in load_project_presets()}
+    scaf = generate_f2py_build_scaffold(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    assert scaf["module_name"] == "fortnumerics"
+    assert "powereigen3x3" in scaf["pyi_stub"]
+    assert "thomastridiag" in scaf["pyi_stub"]
+    assert "py.extension_module" in scaf["meson_build"]
+    assert "cmake_minimum_required" in scaf["cmake_lists"]
+
+    assert cli_main(["eigen", "--preset", "spd_stiffness", "--iterations", "50"]) == 0
+    assert cli_main(["tridiag", "-n", "15", "--bc", "catenary"]) == 0
+    assert cli_main(["scaffold", "--preset", "numerics_f90"]) == 0
