@@ -6,6 +6,7 @@ from .precision import run_ieee754_benchmark, evaluate_cmap_precision
 from .auditor import (
     audit_fortran_source,
     build_jupyter_notebook,
+    build_markdown_pr_report,
     build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
@@ -37,6 +38,7 @@ __all__ = [
     "evaluate_cmap_precision",
     "audit_fortran_source",
     "build_jupyter_notebook",
+    "build_markdown_pr_report",
     "build_project_zip_bundle",
     "generate_f2py_build_scaffold",
     "load_project_presets",

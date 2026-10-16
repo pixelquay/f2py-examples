@@ -733,6 +733,76 @@ def _generate_pytorch_and_jax_wrappers(code: str, mod_name: str) -> str:
     return "\n".join(lines)
 
 
+def _generate_rust_and_julia_bindings(code: str, mod_name: str) -> Tuple[str, str]:
+    """
+    Generate polyglot C-ABI bindings for Rust (`extern "C"` FFI) and Julia (`@ccall` / `ccall`)
+    targeting the generated Fortran 2008 `iso_c_binding` (`bind(C)`) symbols.
+    """
+    routines = _extract_routines_metadata(code)
+    rs_lines = [
+        f"//! Auto-generated Rust FFI bindings for `{mod_name}_c_abi` (Fortran 2008 ISO_C_BINDING)",
+        "use std::os::raw::{c_double, c_int};",
+        "",
+        f"#[link(name = \"{mod_name}\")]",
+        "unsafe extern \"C\" {",
+    ]
+    jl_lines = [
+        f"# Auto-generated Julia ccall bindings for `{mod_name}_c_abi` (Fortran 2008 ISO_C_BINDING)",
+        f"module {mod_name.capitalize()}Julia",
+        "",
+        f"const LIB_{mod_name.upper()} = joinpath(@__DIR__, \"lib{mod_name}.so\")",
+        "",
+    ]
+
+    if not routines:
+        rs_lines.append(f"    pub fn {mod_name}_ping_c(status: *mut c_int);")
+        jl_lines.extend(
+            [
+                "function ping()::Int32",
+                "    status = Ref{Int32}(0)",
+                f"    ccall((:{mod_name}_ping_c, LIB_{mod_name.upper()}), Cvoid, (Ref{{Int32}},), status)",
+                "    return status[]",
+                "end",
+                "",
+            ]
+        )
+    else:
+        for r in routines[:6]:
+            r_name = r["name"]
+            c_symbol = f"{mod_name}_{r_name}_c"
+            rs_params: List[str] = []
+            jl_types: List[str] = []
+            jl_args: List[str] = []
+            for a in r["args"]:
+                meta = r["arg_meta"][a]
+                is_mut = meta["intent"] in ("out", "inout")
+                ptr_kw = "*mut" if is_mut else "*const"
+                rs_t = "c_int" if meta["type"] == "int" else "c_double"
+                rs_params.append(f"{a}: {ptr_kw} {rs_t}")
+                if meta["is_array"]:
+                    jl_t = "Ptr{Int32}" if meta["type"] == "int" else "Ptr{Float64}"
+                else:
+                    jl_t = "Ref{Int32}" if meta["type"] == "int" else "Ref{Float64}"
+                jl_types.append(jl_t)
+                jl_args.append(a)
+            rs_lines.append(f"    pub fn {c_symbol}({', '.join(rs_params)});")
+            jl_sig = ", ".join(jl_types) + ("," if len(jl_types) == 1 else "")
+            jl_arg_str = ", ".join(jl_args)
+            jl_lines.extend(
+                [
+                    f"function {r_name}({jl_arg_str})",
+                    f"    ccall((:{c_symbol}, LIB_{mod_name.upper()}), Cvoid, ({jl_sig}), {jl_arg_str})",
+                    "    return nothing",
+                    "end",
+                    "",
+                ]
+            )
+
+    rs_lines.append("}\n")
+    jl_lines.append(f"end # module {mod_name.capitalize()}Julia\n")
+    return "\n".join(rs_lines), "\n".join(jl_lines)
+
+
 def modernize_f77_to_f2008(
     code: str,
     filename: str = "legacy.f",
@@ -825,8 +895,9 @@ def modernize_f77_to_f2008(
 
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(modernized_f90, mod_name)
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(modernized_f90, mod_name)
+    rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(modernized_f90, mod_name)
     transformations.append(
-        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes` wrapper, and PyTorch/JAX zero-copy bridge."
+        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes`, PyTorch/JAX zero-copy bridge, Rust FFI, and Julia `ccall` bindings."
     )
 
     modern_filename = f"{Path(filename).stem}.f90"
@@ -846,6 +917,8 @@ def modernize_f77_to_f2008(
         "c_binding_f90": c_binding_f90,
         "ctypes_wrapper_py": ctypes_wrapper_py,
         "pytorch_jax_py": pytorch_jax_py,
+        "rust_ffi_rs": rust_ffi_rs,
+        "julia_ccall_jl": julia_ccall_jl,
         "generated_pyi_stub": post_audit["generated_pyi_stub"],
         "generated_pyf_signature": post_audit["generated_pyf_signature"],
     }
@@ -865,6 +938,7 @@ def generate_f2py_build_scaffold(
     - `ISO_C_BINDING` Fortran 2008 C-ABI wrapper (`<module_name>_c_abi.f90`)
     - Python `ctypes` wrapper (`<module_name>_ctypes.py`)
     - PyTorch `torch.autograd.Function` & JAX `__dlpack__` wrapper (`<module_name>_pytorch_jax.py`)
+    - Rust FFI (`bindings.rs`) & Julia `ccall` (`bindings.jl`)
     - Direct `python -m numpy.f2py -c` command string
     """
     audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
@@ -881,6 +955,7 @@ def generate_f2py_build_scaffold(
     pyi_stub, pyf_sig = _generate_stubs_from_source(fixed_code, filename)
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(fixed_code, mod_name)
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(fixed_code, mod_name)
+    rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(fixed_code, mod_name)
 
     meson_build = (
         f"project('{mod_name}', 'c', 'fortran', version: '6.0.0')\n\n"
@@ -943,6 +1018,8 @@ def generate_f2py_build_scaffold(
         "c_binding_f90": c_binding_f90,
         "ctypes_wrapper_py": ctypes_wrapper_py,
         "pytorch_jax_py": pytorch_jax_py,
+        "rust_ffi_rs": rust_ffi_rs,
+        "julia_ccall_jl": julia_ccall_jl,
     }
 
 
@@ -953,15 +1030,22 @@ def build_project_zip_bundle(
 ) -> bytes:
     """
     Assemble an in-memory `.zip` archive containing a complete, ready-to-build
-    Fortran 2008 + Python F2PY, ISO_C_BINDING & PyTorch/JAX package.
+    Fortran 2008 + Python F2PY, ISO_C_BINDING, PyTorch/JAX, Rust & Julia package.
     """
     scaf = generate_f2py_build_scaffold(code, filename=filename, module_name=module_name)
     mod_res = modernize_f77_to_f2008(code, filename=filename, module_name=module_name)
     mod_name = scaf["module_name"]
 
     readme_md = (
-        f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Python/AI Package\n\n"
+        f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Polyglot AI/HPC Package\n\n"
         f"Generated by **f2py Workbench v6.0.0**.\n\n"
+        f"## Included Polyglot Bindings\n"
+        f"- **Python (`f2py` & PEP 561 `.pyi`)**: `{scaf['pyf_filename']}`, `{scaf['pyi_filename']}`\n"
+        f"- **PyTorch & JAX Zero-Copy Bridge**: `{mod_name}_pytorch_jax.py`\n"
+        f"- **Fortran 2008 `ISO_C_BINDING` C-ABI**: `{mod_name}_c_abi.f90`\n"
+        f"- **Python `ctypes`**: `{mod_name}_ctypes.py`\n"
+        f"- **Rust FFI (`extern \"C\"`)**: `bindings.rs`\n"
+        f"- **Julia (`ccall`)**: `bindings.jl`\n\n"
         f"## Quick Build (`f2py` CLI)\n\n"
         f"```sh\n"
         f"{scaf['cli_compile_cmd']}\n"
@@ -979,6 +1063,8 @@ def build_project_zip_bundle(
         zf.writestr(f"{mod_name}/{mod_name}_c_abi.f90", scaf["c_binding_f90"])
         zf.writestr(f"{mod_name}/{mod_name}_ctypes.py", scaf["ctypes_wrapper_py"])
         zf.writestr(f"{mod_name}/{mod_name}_pytorch_jax.py", scaf["pytorch_jax_py"])
+        zf.writestr(f"{mod_name}/bindings.rs", scaf["rust_ffi_rs"])
+        zf.writestr(f"{mod_name}/bindings.jl", scaf["julia_ccall_jl"])
         zf.writestr(f"{mod_name}/.f2py_f2cmap", scaf["recommended_cmap"] + "\n")
         zf.writestr(f"{mod_name}/{scaf['pyf_filename']}", scaf["pyf_signature"])
         zf.writestr(f"{mod_name}/{scaf['pyi_filename']}", scaf["pyi_stub"])
@@ -1014,11 +1100,11 @@ def build_jupyter_notebook() -> Dict[str, Any]:
                 "cell_type": "markdown",
                 "metadata": {},
                 "source": [
-                    "# Fortran–Python `f2py` Numerical Workbench (`v5.0.0`)\n",
+                    "# Fortran–Python `f2py` Numerical Workbench (`v6.0.0`)\n",
                     "Interactive notebook exported from **f2py Workbench** covering:\n",
                     "1. `INTENT(IN)`, `INTENT(OUT)`, and `INTENT(INOUT)` zero-copy NumPy buffers (`pyprod`)\n",
                     "2. IEEE 754 `real64` vs `real32` literal promotion & Citardauq root stability (`badprec`, `fortnumerics`)\n",
-                    "3. 1D Heat PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, and Vectorized `do concurrent` Black–Scholes (`fortnumerics`)\n",
+                    "3. 1D Heat PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, Vectorized `do concurrent` Black–Scholes, Spectral DFT, and Antithetic Monte Carlo (`fortnumerics`)\n",
                 ],
             },
             {
@@ -1061,3 +1147,35 @@ def build_jupyter_notebook() -> Dict[str, Any]:
             },
         ],
     }
+
+
+def build_markdown_pr_report() -> str:
+    """
+    Generate a GitHub-Flavored Markdown diagnostic & readiness summary table suitable
+    for GitHub Pull Requests, CI job summaries, and documentation badges.
+    """
+    presets = load_project_presets()
+    rows = [
+        "# Fortran–Python `f2py` & C-ABI Readiness Report (`v6.0.0`)",
+        "",
+        "| Source File | Dialect | Status | Findings | Polyglot & AI Targets |",
+        "| :--- | :--- | :--- | :---: | :--- |",
+    ]
+    for p in presets:
+        res = audit_fortran_source(p["code"], p["filename"], cmap_mode="modern")
+        badge = "PASS (`f2py` Ready)" if res["overall_status"] == "success" else f"WARN/FAIL ({len(res['findings'])} issues)"
+        rows.append(
+            f"| `{p['filename']}` | {res['dialect']} | **{badge}** | {len(res['findings'])} | `f2py`, `ISO_C_BINDING`, `PyTorch/JAX`, `Rust`, `Julia` |"
+        )
+    rows.extend(
+        [
+            "",
+            "## Active `.f2py_f2cmap` Configuration",
+            "```python",
+            "dict(real=dict(sp='float', dp='double', qp='long_double', real32='float', real64='double', real128='long_double'))",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(rows)
+
