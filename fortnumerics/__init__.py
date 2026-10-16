@@ -284,6 +284,34 @@ class _FortNumericsModule:
             res_inf = max(res_inf, abs(float(lhs - d_rhs[i])))
         return x_out, float(res_inf)
 
+    @staticmethod
+    def blackscholesgrid(
+        s_grid: Union[Sequence[float], NDArray[np.floating]],
+        strike: float,
+        rate: float,
+        sigma: float,
+        maturity: float,
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        """Vectorized European Call/Put option pricing and Call Delta across an N-point spot grid."""
+        s_arr = np.asarray(s_grid, dtype=np.float64, order="F")
+        s_safe = np.maximum(1.0e-12, s_arr)
+        k_val = float(strike)
+        r_val = float(rate)
+        v_val = float(sigma)
+        t_val = max(1.0e-12, float(maturity))
+
+        vol_sqrt_t = max(1.0e-12, v_val * np.sqrt(t_val))
+        disc_k = k_val * np.exp(-r_val * t_val)
+        d1 = (np.log(s_safe / k_val) + (r_val + 0.5 * v_val * v_val) * t_val) / vol_sqrt_t
+        d2 = d1 - vol_sqrt_t
+        inv_sqrt2 = 1.0 / np.sqrt(2.0)
+        nd1 = 0.5 * np.vectorize(math.erfc, otypes=[np.float64])(-d1 * inv_sqrt2)
+        nd2 = 0.5 * np.vectorize(math.erfc, otypes=[np.float64])(-d2 * inv_sqrt2)
+        call_p = np.asarray(s_safe * nd1 - disc_k * nd2, dtype=np.float64, order="F")
+        put_p = np.asarray(call_p - s_safe + disc_k, dtype=np.float64, order="F")
+        delta_c = np.asarray(nd1, dtype=np.float64, order="F")
+        return call_p, put_p, delta_c
+
 
 fortnumerics = _FortNumericsModule()
 

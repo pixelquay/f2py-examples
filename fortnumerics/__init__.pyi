@@ -53,6 +53,14 @@ class _FortNumericsModule:
         super_d: Union[Sequence[float], NDArray[np.floating]],
         rhs: Union[Sequence[float], NDArray[np.floating]],
     ) -> Tuple[NDArray[np.float64], float]: ...
+    @staticmethod
+    def blackscholesgrid(
+        s_grid: Union[Sequence[float], NDArray[np.floating]],
+        strike: float,
+        rate: float,
+        sigma: float,
+        maturity: float,
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]

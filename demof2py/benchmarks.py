@@ -665,6 +665,67 @@ def simulate_thomas_tridiag(
     }
 
 
+def simulate_blackscholes_grid(
+    n: int = 81,
+    strike: float = 100.0,
+    sigma: float = 0.25,
+    rate: float = 0.05,
+    maturity: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 `do concurrent` Black-Scholes option pricing kernel (`BlackScholesGrid`)
+    across an N-point spot-price grid, reporting ATM Call/Put/Delta, put-call parity residual,
+    effective GFLOP/s throughput, and GB/s memory bandwidth.
+    """
+    n = max(11, min(int(n), 501))
+    if n % 2 == 0:
+        n += 1
+    strike = max(10.0, min(float(strike), 1000.0))
+    sigma = max(0.05, min(float(sigma), 1.5))
+    rate = max(0.0, min(float(rate), 0.30))
+    maturity = max(0.05, min(float(maturity), 10.0))
+
+    s_grid = np.linspace(0.5 * strike, 1.5 * strike, n, dtype=np.float64)
+    s_grid_f = np.asfortranarray(s_grid)
+
+    t0 = time.perf_counter()
+    call_p, put_p, delta_c = fortnumerics.blackscholesgrid(
+        s_grid_f, strike, rate, sigma, maturity
+    )
+    elapsed_s = max(1.0e-7, time.perf_counter() - t0)
+
+    # ~28 FLOPs per spot point (log, sqrt, 2x erfc, exp, multiplies/adds)
+    # 4 arrays * 8 bytes per point (s_grid read + call, put, delta written) = 32 bytes/point
+    flops_per_pt = 28.0
+    bytes_per_pt = 32.0
+    gflops_s = round((n * flops_per_pt) / (elapsed_s * 1.0e9), 3)
+    bandwidth_gb_s = round((n * bytes_per_pt) / (elapsed_s * 1.0e9), 3)
+
+    mid = n // 2
+    disc_k = strike * math.exp(-rate * maturity)
+    parity_res = float(np.max(np.abs((call_p - put_p) - (s_grid_f - disc_k))))
+
+    return {
+        "n": n,
+        "strike": round(strike, 2),
+        "sigma": round(sigma, 4),
+        "rate": round(rate, 4),
+        "maturity": round(maturity, 4),
+        "f_contiguous": bool(call_p.flags["F_CONTIGUOUS"]),
+        "atm_spot": round(float(s_grid_f[mid]), 2),
+        "atm_call": round(float(call_p[mid]), 4),
+        "atm_put": round(float(put_p[mid]), 4),
+        "atm_delta": round(float(delta_c[mid]), 4),
+        "put_call_parity_residual": float(f"{parity_res:.3e}"),
+        "gflops_per_sec": gflops_s,
+        "bandwidth_gb_per_sec": bandwidth_gb_s,
+        "s_grid": [round(float(v), 2) for v in s_grid_f],
+        "call_curve": [round(float(v), 4) for v in call_p],
+        "put_curve": [round(float(v), 4) for v in put_p],
+        "delta_curve": [round(float(v), 4) for v in delta_c],
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -680,6 +741,7 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "poisson": "--poisson",
         "eigen": "--eigen",
         "tridiag": "--tridiag",
+        "blackscholes": "--blackscholes",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -712,10 +774,11 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     pois_res = simulate_poisson_2d()
     eig_res = simulate_eigen_3x3()
     tri_res = simulate_thomas_tridiag()
+    bs_res = simulate_blackscholes_grid()
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v4.0.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v5.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
@@ -723,6 +786,7 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         f"  Poisson2D: ||r||_inf = {pois_res['max_residual']:.6e}, ||u||_L2 = {pois_res['l2_norm']:.6f}\n"
         f"  Eigen3x3 : lambda_max = {eig_res['dominant_eigenvalue']:.6f}, ||Av-lv||_2 = {eig_res['residual_norm']:.2e}\n"
         f"  ThomasTri: x_mid = {tri_res['center_value']:.6f}, ||Tx-b||_inf = {tri_res['residual_inf']:.2e}\n"
+        f"  BlackSch : ATM Call = {bs_res['atm_call']:.4f}, Put = {bs_res['atm_put']:.4f}, Delta = {bs_res['atm_delta']:.4f}\n"
         "========================================================================"
     )
     return {
@@ -741,7 +805,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "4.0.0",
+        "version": "5.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -753,7 +817,9 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "poisson_2d": simulate_poisson_2d(),
         "eigen_3x3": simulate_eigen_3x3(),
         "thomas_tridiag": simulate_thomas_tridiag(),
+        "blackscholes_grid": simulate_blackscholes_grid(),
     }
+
 
 
 
