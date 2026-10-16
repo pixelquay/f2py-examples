@@ -41,6 +41,18 @@ class _FortNumericsModule:
         iterations: int,
         rhs: Union[Sequence[Sequence[float]], NDArray[np.floating]],
     ) -> Tuple[NDArray[np.float64], float, float]: ...
+    @staticmethod
+    def powereigen3x3(
+        a: Union[Sequence[Sequence[float]], NDArray[np.floating]],
+        iterations: int,
+    ) -> Tuple[float, NDArray[np.float64], float]: ...
+    @staticmethod
+    def thomastridiag(
+        sub_d: Union[Sequence[float], NDArray[np.floating]],
+        main_d: Union[Sequence[float], NDArray[np.floating]],
+        super_d: Union[Sequence[float], NDArray[np.floating]],
+        rhs: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]

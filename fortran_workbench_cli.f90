@@ -7,11 +7,12 @@ program fortran_workbench_cli
   use :: badprec, only: pi32, pi64, pi64_true
   use :: precision_mod, only: compute_precision
   use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
+  use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag
   implicit none
 
   character(len=64) :: arg
   integer :: argc
-  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois
+  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -22,6 +23,8 @@ program fortran_workbench_cli
   run_quad = .false.
   run_ode = .false.
   run_pois = .false.
+  run_eig = .false.
+  run_tri = .false.
 
   if (argc > 0) then
     call get_command_argument(1, arg)
@@ -42,6 +45,10 @@ program fortran_workbench_cli
       run_ode = .true.
     case ('--poisson', '-2d')
       run_pois = .true.
+    case ('--eigen', '-e')
+      run_eig = .true.
+    case ('--tridiag', '-t')
+      run_tri = .true.
     case ('--help', '-h')
       call print_usage()
       stop 0
@@ -61,11 +68,13 @@ program fortran_workbench_cli
   if (run_all .or. run_quad) call section_quadrature()
   if (run_all .or. run_ode)  call section_ode()
   if (run_all .or. run_pois) call section_poisson()
+  if (run_all .or. run_eig)  call section_eigen()
+  if (run_all .or. run_tri)  call section_tridiag()
 
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag]'
   end subroutine print_usage
 
 
@@ -188,6 +197,39 @@ contains
     write(output_unit, '(a,f12.6,a,es12.4,a,f12.6)') &
       '  Center Potential: ', u_out((n + 1) / 2, (n + 1) / 2), '  Max Residual: ', max_res, '  L2 Norm: ', l2_norm
   end subroutine section_poisson
+
+
+  subroutine section_eigen()
+    real(dp) :: a(3, 3), eigval, eigvec(3), res_norm
+
+    a = reshape([ &
+      4.0_dp, -1.0_dp,  0.0_dp, &
+     -1.0_dp,  4.0_dp, -1.0_dp, &
+      0.0_dp, -1.0_dp,  4.0_dp  &
+    ], [3, 3])
+    call PowerEigen3x3(a, 30, eigval, eigvec, res_norm)
+
+    write(output_unit, '(/,a)') '[8] Rayleigh-Quotient Dominant Eigenpair (PowerEigen3x3)'
+    write(output_unit, '(a,f12.6,a,es12.4)') &
+      '  Dominant Eigenvalue lambda_max: ', eigval, '  Residual ||Av - lambda v||_2: ', res_norm
+  end subroutine section_eigen
+
+
+  subroutine section_tridiag()
+    integer, parameter :: n = 5
+    real(dp) :: sub_d(n), main_d(n), super_d(n), rhs(n), x_out(n), res_inf
+
+    sub_d   = [0.0_dp, -1.0_dp, -1.0_dp, -1.0_dp, -1.0_dp]
+    main_d  = [2.0_dp,  2.0_dp,  2.0_dp,  2.0_dp,  2.0_dp]
+    super_d = [-1.0_dp, -1.0_dp, -1.0_dp, -1.0_dp, 0.0_dp]
+    rhs     = [1.0_dp,  0.0_dp,  0.0_dp,  0.0_dp,  1.0_dp]
+
+    call ThomasTridiag(n, sub_d, main_d, super_d, rhs, x_out, res_inf)
+
+    write(output_unit, '(/,a)') '[9] O(N) Thomas Tridiagonal Solver (ThomasTridiag)'
+    write(output_unit, '(a,f12.6,a,es12.4)') &
+      '  Center Solution x(3): ', x_out(3), '  Max Residual ||Tx - b||_inf: ', res_inf
+  end subroutine section_tridiag
 
 end program fortran_workbench_cli
 
