@@ -5,6 +5,8 @@ from .kernels import execute_kernel, compare_all_intents, LIST_KERNELS
 from .precision import run_ieee754_benchmark, evaluate_cmap_precision
 from .auditor import (
     audit_fortran_source,
+    build_jupyter_notebook,
+    build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -34,6 +36,8 @@ __all__ = [
     "run_ieee754_benchmark",
     "evaluate_cmap_precision",
     "audit_fortran_source",
+    "build_jupyter_notebook",
+    "build_project_zip_bundle",
     "generate_f2py_build_scaffold",
     "load_project_presets",
     "modernize_f77_to_f2008",

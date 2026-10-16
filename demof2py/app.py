@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 import numpy as np
 from pydantic import BaseModel, Field
@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from . import __version__
 from .auditor import (
     audit_fortran_source,
+    build_jupyter_notebook,
+    build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -30,6 +32,7 @@ from .benchmarks import (
     evaluate_quadratic_cancellation,
     run_native_fortran_cli,
     run_performance_benchmark,
+    simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_poisson_2d,
@@ -179,6 +182,14 @@ class TridiagExploreRequest(BaseModel):
         pattern="^(catenary|helmholtz_screened|boundary_drive)$",
         description="Boundary-value problem type: catenary, helmholtz_screened, or boundary_drive",
     )
+
+
+class BlackScholesExploreRequest(BaseModel):
+    n: int = Field(default=81, ge=11, le=501, description="Spot-price grid points N")
+    strike: float = Field(default=100.0, ge=10.0, le=1000.0, description="Option strike price K")
+    sigma: float = Field(default=0.25, ge=0.05, le=1.5, description="Annualized volatility sigma")
+    rate: float = Field(default=0.05, ge=0.0, le=0.30, description="Risk-free interest rate r")
+    maturity: float = Field(default=1.0, ge=0.05, le=10.0, description="Time to maturity T (years)")
 
 
 
@@ -385,12 +396,28 @@ def post_explore_tridiag(req: TridiagExploreRequest) -> Dict[str, Any]:
     )
 
 
+@app.post("/api/v1/quant/blackscholes")
+def post_explore_blackscholes(req: BlackScholesExploreRequest) -> Dict[str, Any]:
+    """Execute the vectorized Fortran 2008 `do concurrent` Black-Scholes option pricing kernel (`BlackScholesGrid`)."""
+    return simulate_blackscholes_grid(
+        n=req.n,
+        strike=req.strike,
+        sigma=req.sigma,
+        rate=req.rate,
+        maturity=req.maturity,
+    )
 
 
 @app.get("/api/v1/export/report")
 def get_export_report() -> Dict[str, Any]:
     """Export a full JSON diagnostic & benchmark report."""
     return build_diagnostic_bundle()
+
+
+@app.get("/api/v1/export/notebook.ipynb")
+def get_export_notebook() -> Dict[str, Any]:
+    """Export an interactive Jupyter Notebook (.ipynb) covering all Fortran-Python workbench kernels."""
+    return build_jupyter_notebook()
 
 
 @app.get("/api/v1/presets")
@@ -433,6 +460,23 @@ def post_modernize_fortran(req: AuditRequest) -> Dict[str, Any]:
     return modernize_f77_to_f2008(
         code=req.code,
         filename=req.filename,
+    )
+
+
+@app.post("/api/v1/diagnostics/bundle.zip")
+def post_bundle_zip_fortran(req: AuditRequest) -> Response:
+    """Download a ready-to-build .zip project bundle for the audited Fortran source."""
+    zip_bytes = build_project_zip_bundle(
+        code=req.code,
+        filename=req.filename,
+    )
+    stem = Path(req.filename).stem.lower() or "fortmod"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}-f2py-bundle.zip"',
+        },
     )
 
 
