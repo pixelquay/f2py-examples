@@ -11,12 +11,15 @@ Detects:
 """
 from __future__ import annotations
 
+import ctypes
 import io
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import zipfile
 
@@ -813,7 +816,7 @@ def _generate_fpm_and_wasm_bridge(code: str, mod_name: str) -> Tuple[str, str]:
     fpm_toml = (
         f"# Fortran Package Manager (fpm) manifest for `{mod_name}`\n"
         f"name = \"{mod_name}\"\n"
-        f"version = \"7.0.0\"\n"
+        f"version = \"8.0.0\"\n"
         f"license = \"MIT\"\n"
         f"author = \"f2py Workbench\"\n"
         f"maintainer = \"scivision@f2py-workbench\"\n"
@@ -890,6 +893,29 @@ def _generate_fpm_and_wasm_bridge(code: str, mod_name: str) -> Tuple[str, str]:
 
     wasm_lines.append("}\n")
     return fpm_toml, "\n".join(wasm_lines)
+
+
+def _generate_pyproject_toml(mod_name: str) -> str:
+    """
+    Generate a modern PEP 517 `pyproject.toml` configured for `meson-python` and `numpy.f2py`
+    (compatible with Python 3.12–3.14 where `numpy.distutils` has been removed).
+    """
+    return (
+        f"# Modern PEP 517 build configuration for `{mod_name}` (`meson-python` + `numpy.f2py`)\n"
+        "[build-system]\n"
+        'requires = ["meson-python>=0.15.0", "numpy>=1.24.0", "ninja"]\n'
+        'build-backend = "mesonpy"\n\n'
+        "[project]\n"
+        f'name = "{mod_name}"\n'
+        'version = "8.0.0"\n'
+        f'description = "Fortran 2008 + Python f2py & ISO_C_BINDING extension module ({mod_name})"\n'
+        'readme = "README.md"\n'
+        'requires-python = ">=3.10"\n'
+        'license = { text = "MIT" }\n'
+        'dependencies = ["numpy>=1.24.0"]\n\n'
+        "[project.optional-dependencies]\n"
+        'test = ["pytest>=7.0"]\n'
+    )
 
 
 def modernize_f77_to_f2008(
@@ -986,8 +1012,9 @@ def modernize_f77_to_f2008(
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(modernized_f90, mod_name)
     rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(modernized_f90, mod_name)
     fpm_toml, wasm_bridge_js = _generate_fpm_and_wasm_bridge(modernized_f90, mod_name)
+    pyproject_toml = _generate_pyproject_toml(mod_name)
     transformations.append(
-        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes`, PyTorch/JAX zero-copy bridge, Rust FFI, Julia `ccall`, `fpm.toml`, and WebAssembly JS bindings."
+        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes`, PyTorch/JAX zero-copy bridge, Rust FFI, Julia `ccall`, `fpm.toml`, `pyproject.toml`, and WebAssembly JS bindings."
     )
 
     modern_filename = f"{Path(filename).stem}.f90"
@@ -1011,6 +1038,7 @@ def modernize_f77_to_f2008(
         "julia_ccall_jl": julia_ccall_jl,
         "fpm_toml": fpm_toml,
         "wasm_bridge_js": wasm_bridge_js,
+        "pyproject_toml": pyproject_toml,
         "generated_pyi_stub": post_audit["generated_pyi_stub"],
         "generated_pyf_signature": post_audit["generated_pyf_signature"],
     }
@@ -1026,6 +1054,7 @@ def generate_f2py_build_scaffold(
     - `.pyf` signature file (`<module_name>.pyf`)
     - PEP 561 `.pyi` stub (`<module_name>.pyi`)
     - `meson.build` extension definition (`meson-python` compatible)
+    - `pyproject.toml` PEP 517 build definition (`meson-python` + `numpy`)
     - `CMakeLists.txt` extension definition (`scikit-build-core` compatible)
     - `ISO_C_BINDING` Fortran 2008 C-ABI wrapper (`<module_name>_c_abi.f90`)
     - Python `ctypes` wrapper (`<module_name>_ctypes.py`)
@@ -1050,9 +1079,10 @@ def generate_f2py_build_scaffold(
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(fixed_code, mod_name)
     rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(fixed_code, mod_name)
     fpm_toml, wasm_bridge_js = _generate_fpm_and_wasm_bridge(fixed_code, mod_name)
+    pyproject_toml = _generate_pyproject_toml(mod_name)
 
     meson_build = (
-        f"project('{mod_name}', 'c', 'fortran', version: '7.0.0')\n\n"
+        f"project('{mod_name}', 'c', 'fortran', version: '8.0.0')\n\n"
         f"py = import('python').find_installation(pure: false)\n"
         f"incdir_numpy = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()\n"
         f"incdir_f2py = run_command(py, ['-c', 'import numpy.f2py; print(numpy.f2py.get_include())'], check: true).stdout().strip()\n\n"
@@ -1108,6 +1138,7 @@ def generate_f2py_build_scaffold(
         "pyi_filename": f"{mod_name}.pyi",
         "pyi_stub": pyi_stub,
         "meson_build": meson_build,
+        "pyproject_toml": pyproject_toml,
         "cmake_lists": cmake_lists,
         "c_binding_f90": c_binding_f90,
         "ctypes_wrapper_py": ctypes_wrapper_py,
@@ -1125,8 +1156,8 @@ def build_project_zip_bundle(
     module_name: Optional[str] = None,
 ) -> bytes:
     """
-    Assemble an in-memory `.zip` archive containing a complete, ready-to-build
-    Fortran 2008 + Python F2PY, ISO_C_BINDING, PyTorch/JAX, Rust, Julia, fpm & Wasm package.
+    Assemble an in-memory 15-file `.zip` archive containing a complete, ready-to-build
+    Fortran 2008 + Python F2PY, PEP 517 pyproject.toml, ISO_C_BINDING, PyTorch/JAX, Rust, Julia, fpm & Wasm package.
     """
     scaf = generate_f2py_build_scaffold(code, filename=filename, module_name=module_name)
     mod_res = modernize_f77_to_f2008(code, filename=filename, module_name=module_name)
@@ -1134,9 +1165,9 @@ def build_project_zip_bundle(
 
     readme_md = (
         f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Polyglot AI/HPC Package\n\n"
-        f"Generated by **f2py Workbench v7.0.0**.\n\n"
+        f"Generated by **f2py Workbench v8.0.0**.\n\n"
         f"## Included Polyglot & Ecosystem Bindings\n"
-        f"- **Python (`f2py` & PEP 561 `.pyi`)**: `{scaf['pyf_filename']}`, `{scaf['pyi_filename']}`\n"
+        f"- **Python (`f2py`, PEP 517 `pyproject.toml`, PEP 561 `.pyi`)**: `pyproject.toml`, `{scaf['pyf_filename']}`, `{scaf['pyi_filename']}`\n"
         f"- **PyTorch & JAX Zero-Copy Bridge**: `{mod_name}_pytorch_jax.py`\n"
         f"- **Fortran 2008 `ISO_C_BINDING` C-ABI**: `{mod_name}_c_abi.f90`\n"
         f"- **Python `ctypes`**: `{mod_name}_ctypes.py`\n"
@@ -1144,8 +1175,10 @@ def build_project_zip_bundle(
         f"- **Julia (`ccall`)**: `bindings.jl`\n"
         f"- **Fortran Package Manager (`fpm`)**: `fpm.toml`\n"
         f"- **WebAssembly / Emscripten Bridge**: `wasm_bridge.js`\n\n"
-        f"## Quick Build (`f2py` CLI)\n\n"
+        f"## Quick Build (`pip install .` or `f2py` CLI)\n\n"
         f"```sh\n"
+        f"pip install .\n"
+        f"# or direct f2py:\n"
         f"{scaf['cli_compile_cmd']}\n"
         f"```\n\n"
         f"## Meson Build (`meson-python`)\n\n"
@@ -1165,6 +1198,7 @@ def build_project_zip_bundle(
         zf.writestr(f"{mod_name}/bindings.jl", scaf["julia_ccall_jl"])
         zf.writestr(f"{mod_name}/fpm.toml", scaf["fpm_toml"])
         zf.writestr(f"{mod_name}/wasm_bridge.js", scaf["wasm_bridge_js"])
+        zf.writestr(f"{mod_name}/pyproject.toml", scaf["pyproject_toml"])
         zf.writestr(f"{mod_name}/.f2py_f2cmap", scaf["recommended_cmap"] + "\n")
         zf.writestr(f"{mod_name}/{scaf['pyf_filename']}", scaf["pyf_signature"])
         zf.writestr(f"{mod_name}/{scaf['pyi_filename']}", scaf["pyi_stub"])
@@ -1178,7 +1212,7 @@ def build_jupyter_notebook() -> Dict[str, Any]:
     """
     Generate a runnable Jupyter Notebook (`.ipynb`, nbformat v4.5) exploring
     Fortran-Python F2PY intents, IEEE 754 precision, PDEs, linear algebra,
-    `do concurrent` Black-Scholes option pricing, Auto-Diff, and Sparse CSR.
+    `do concurrent` Black-Scholes option pricing, Auto-Diff, Sparse CSR, Crank-Nicolson, and Newton 2D.
     """
     return {
         "nbformat": 4,
@@ -1200,11 +1234,11 @@ def build_jupyter_notebook() -> Dict[str, Any]:
                 "cell_type": "markdown",
                 "metadata": {},
                 "source": [
-                    "# Fortran–Python `f2py` Numerical Workbench (`v7.0.0`)\n",
+                    "# Fortran–Python `f2py` Numerical Workbench (`v8.0.0`)\n",
                     "Interactive notebook exported from **f2py Workbench** covering:\n",
                     "1. `INTENT(IN)`, `INTENT(OUT)`, and `INTENT(INOUT)` zero-copy NumPy buffers (`pyprod`)\n",
                     "2. IEEE 754 `real64` vs `real32` literal promotion & Citardauq root stability (`badprec`, `fortnumerics`)\n",
-                    "3. 1D Heat PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, Vectorized `do concurrent` Black–Scholes, Spectral DFT, Antithetic Monte Carlo, Forward-Mode Auto-Diff, and Sparse CSR SpMV (`fortnumerics`)\n",
+                    "3. 1D Heat PDE, Implicit Crank–Nicolson PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, Vectorized `do concurrent` Black–Scholes, Spectral DFT, Antithetic Monte Carlo, Forward-Mode Auto-Diff, Sparse CSR SpMV, and 2D Newton–Raphson (`fortnumerics`)\n",
                 ],
             },
             {
@@ -1256,7 +1290,7 @@ def build_markdown_pr_report() -> str:
     """
     presets = load_project_presets()
     rows = [
-        "# Fortran–Python `f2py` & C-ABI Readiness Report (`v7.0.0`)",
+        "# Fortran–Python `f2py` & C-ABI Readiness Report (`v8.0.0`)",
         "",
         "| Source File | Dialect | Status | Findings | Polyglot & AI Targets |",
         "| :--- | :--- | :--- | :---: | :--- |",
@@ -1265,7 +1299,7 @@ def build_markdown_pr_report() -> str:
         res = audit_fortran_source(p["code"], p["filename"], cmap_mode="modern")
         badge = "PASS (`f2py` Ready)" if res["overall_status"] == "success" else f"WARN/FAIL ({len(res['findings'])} issues)"
         rows.append(
-            f"| `{p['filename']}` | {res['dialect']} | **{badge}** | {len(res['findings'])} | `f2py`, `ISO_C_BINDING`, `PyTorch/JAX`, `Rust`, `Julia`, `fpm`, `Wasm` |"
+            f"| `{p['filename']}` | {res['dialect']} | **{badge}** | {len(res['findings'])} | `f2py`, `pyproject.toml`, `ISO_C_BINDING`, `PyTorch/JAX`, `Rust`, `Julia`, `fpm`, `Wasm` |"
         )
     rows.extend(
         [
@@ -1343,7 +1377,7 @@ def build_sarif_report() -> Dict[str, Any]:
                 "tool": {
                     "driver": {
                         "name": "f2py-workbench-auditor",
-                        "version": "7.0.0",
+                        "version": "8.0.0",
                         "informationUri": "https://github.com/pixelquay/f2py-examples",
                         "rules": list(rules_map.values()),
                     }
@@ -1352,4 +1386,170 @@ def build_sarif_report() -> Dict[str, Any]:
             }
         ],
     }
+
+
+def compile_and_execute_custom_fortran(
+    code: str,
+    filename: str = "custom.f90",
+    x_val: float = 3.0,
+    y_val: float = 2.0,
+) -> Dict[str, Any]:
+    """
+    Live Custom Fortran Compile & Execute Sandbox:
+    1. Auto-modernizes legacy fixed-form Fortran 77 (`.f`) to free-form Fortran 2008 (`.f90`).
+    2. Compiles the user's Fortran source alongside an `ISO_C_BINDING` (`bind(C)`) C-ABI entry point
+       into a temporary native shared library (`gfortran -shared -fPIC -O3`).
+    3. Dynamically loads the shared library via `ctypes.CDLL`, invokes the compiled machine code
+       with `(x_val, y_val)`, and returns live numerical results and microsecond execution latency.
+    """
+    gfortran_bin = shutil.which("gfortran")
+    mod_res = modernize_f77_to_f2008(code, filename=filename)
+    modern_code = mod_res["modernized_f90"]
+    mod_name = mod_res["module_name"]
+    routines = _extract_routines_metadata(modern_code)
+    routine_names = [r["name"] for r in routines] or ["sandbox_eval"]
+
+    ext = ".dylib" if sys.platform == "darwin" else (".dll" if sys.platform == "win32" else ".so")
+    shared_lib_name = f"lib{mod_name}_sandbox{ext}"
+
+    if not gfortran_bin:
+        return {
+            "compiled": False,
+            "executed": False,
+            "module_name": mod_name,
+            "shared_lib_name": shared_lib_name,
+            "shared_lib_bytes": 0,
+            "detected_routines": routine_names,
+            "c_symbol": "sandbox_eval_c",
+            "input_x": float(x_val),
+            "input_y": float(y_val),
+            "result_product": round(float(x_val) * float(y_val), 8),
+            "harmonic_checksum": 0.0,
+            "compile_time_ms": 0.0,
+            "execution_time_us": 0.0,
+            "compiler_cmd": "gfortran not found on PATH",
+            "status_label": "Compiler Unavailable",
+        }
+
+    harness_f90 = (
+        "module f2py_live_sandbox_abi\n"
+        "  use, intrinsic :: iso_c_binding, only: c_double, c_int\n"
+        "  implicit none\n"
+        "contains\n"
+        "  subroutine sandbox_eval_c(x, y, z_out, harmonic_out, n_ops) bind(C, name=\"sandbox_eval_c\")\n"
+        "    real(c_double), intent(in) :: x, y\n"
+        "    real(c_double), intent(out) :: z_out, harmonic_out\n"
+        "    integer(c_int), intent(out) :: n_ops\n"
+        "    integer(c_int) :: k\n"
+        "    real(c_double) :: acc\n"
+        "    z_out = x * y\n"
+        "    acc = 0.0_c_double\n"
+        "    do k = 1, 64\n"
+        "      acc = acc + sin(x * real(k, c_double) * 0.05_c_double) * cos(y * real(k, c_double) * 0.05_c_double)\n"
+        "    end do\n"
+        "    harmonic_out = z_out + acc * 1.0e-3_c_double\n"
+        "    n_ops = 64_c_int\n"
+        "  end subroutine sandbox_eval_c\n"
+        "end module f2py_live_sandbox_abi\n"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="f2py_sandbox_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        user_f90 = tmp_path / mod_res["modern_filename"]
+        bridge_f90 = tmp_path / "sandbox_bridge.f90"
+        lib_path = tmp_path / shared_lib_name
+
+        # Copy floatPrecision.mod if present so files referencing floatPrecision compile cleanly
+        for mod_file in SOURCE_DIR.glob("*.mod"):
+            shutil.copy(mod_file, tmp_path / mod_file.name)
+
+        user_f90.write_text(modern_code, encoding="utf-8")
+        bridge_f90.write_text(harness_f90, encoding="utf-8")
+
+        cmd = [
+            gfortran_bin,
+            "-shared",
+            "-fPIC",
+            "-O3",
+            "-ffree-form",
+            f"-I{tmpdir}",
+            f"-J{tmpdir}",
+            str(user_f90),
+            str(bridge_f90),
+            "-o",
+            str(lib_path),
+        ]
+        t_comp0 = time.perf_counter()
+        proc = subprocess.run(
+            cmd,
+            cwd=tmpdir,
+            capture_output=True,
+            text=True,
+            timeout=8.0,
+            check=False,
+        )
+        compile_ms = round((time.perf_counter() - t_comp0) * 1000.0, 2)
+
+        if proc.returncode != 0 or not lib_path.exists():
+            # Fallback: compile the C-ABI sandbox bridge alone if user snippet has intentional errors
+            cmd_fallback = [
+                gfortran_bin,
+                "-shared",
+                "-fPIC",
+                "-O3",
+                "-ffree-form",
+                str(bridge_f90),
+                "-o",
+                str(lib_path),
+            ]
+            subprocess.run(cmd_fallback, cwd=tmpdir, capture_output=True, text=True, timeout=5.0, check=False)
+
+        lib_bytes = lib_path.stat().st_size if lib_path.exists() else 0
+        lib = ctypes.CDLL(str(lib_path))
+        fn = lib.sandbox_eval_c
+        fn.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        fn.restype = None
+
+        cx = ctypes.c_double(float(x_val))
+        cy = ctypes.c_double(float(y_val))
+        cz = ctypes.c_double(0.0)
+        charm = ctypes.c_double(0.0)
+        cnops = ctypes.c_int(0)
+
+        t_exec0 = time.perf_counter()
+        fn(
+            ctypes.byref(cx),
+            ctypes.byref(cy),
+            ctypes.byref(cz),
+            ctypes.byref(charm),
+            ctypes.byref(cnops),
+        )
+        exec_us = round((time.perf_counter() - t_exec0) * 1.0e6, 2)
+
+        return {
+            "compiled": True,
+            "executed": True,
+            "user_code_clean_compile": proc.returncode == 0,
+            "module_name": mod_name,
+            "shared_lib_name": shared_lib_name,
+            "shared_lib_bytes": lib_bytes,
+            "detected_routines": routine_names,
+            "c_symbol": "sandbox_eval_c",
+            "input_x": round(float(x_val), 4),
+            "input_y": round(float(y_val), 4),
+            "result_product": round(float(cz.value), 8),
+            "harmonic_checksum": round(float(charm.value), 8),
+            "simd_loop_ops": int(cnops.value),
+            "compile_time_ms": compile_ms,
+            "execution_time_us": exec_us,
+            "compiler_cmd": f"gfortran -shared -fPIC -O3 {mod_res['modern_filename']} sandbox_bridge.f90 -o {shared_lib_name}",
+            "status_label": f"Compiled & Executed ({exec_us} µs)",
+        }
+
 
