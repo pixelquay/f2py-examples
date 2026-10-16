@@ -2082,24 +2082,24 @@
     }
     if (svgEl) {
       const w = 680;
-      const h = 180;
-      const padX = 36;
-      const padY = 24;
+      const h = 190;
+      const padX = 42;
+      const padY = 28;
       const minLogAi = -1.1; // ~0.08 FLOP/B
-      const maxLogAi = 1.1;  // ~12.5 FLOP/B
-      const minLogGf = 0.0;  // 1 GFLOP/s
-      const maxLogGf = Math.max(2.5, Math.log10(Number(data.peak_gflops)) + 0.18);
+      const maxLogAi = 1.15; // ~14.1 FLOP/B
+      const minLogGf = -0.2; // ~0.63 GFLOP/s
+      const maxLogGf = Math.max(2.55, Math.log10(Number(data.peak_gflops)) + 0.25);
 
       const mapX = (ai) =>
         padX + ((Math.log10(Math.max(0.08, ai)) - minLogAi) / (maxLogAi - minLogAi)) * (w - 2 * padX);
       const mapY = (gf) =>
-        h - padY - ((Math.log10(Math.max(1.0, gf)) - minLogGf) / (maxLogGf - minLogGf)) * (h - 2 * padY);
+        h - padY - ((Math.log10(Math.max(0.7, gf)) - minLogGf) / (maxLogGf - minLogGf)) * (h - 2 * padY);
 
       const ridgeAi = Number(data.ridge_point_ai);
       const peakGf = Number(data.peak_gflops);
       const bw = Number(data.peak_bw_gbps);
       const leftAi = 0.1;
-      const rightAi = 11.0;
+      const rightAi = 11.5;
 
       const xLeft = mapX(leftAi);
       const yLeft = mapY(leftAi * bw);
@@ -2107,14 +2107,25 @@
       const yRidge = mapY(peakGf);
       const xRight = mapX(rightAi);
 
+      const labelOffsets = [
+        { dx: -6, dy: 15, anchor: "end" },
+        { dx: 7, dy: 14, anchor: "start" },
+        { dx: -6, dy: -9, anchor: "end" },
+        { dx: 7, dy: 14, anchor: "start" },
+        { dx: -6, dy: -9, anchor: "end" },
+        { dx: -7, dy: -10, anchor: "end" },
+        { dx: 7, dy: 14, anchor: "start" },
+      ];
+
       const kernelNodes = data.kernels
-        .map((k) => {
+        .map((k, idx) => {
           const cx = mapX(Number(k.arithmetic_intensity));
           const cy = mapY(Number(k.attained_gflops));
           const fill = k.regime === "Compute-Bound" ? "var(--success-dot)" : "var(--accent-primary)";
+          const off = labelOffsets[idx % labelOffsets.length];
           return `
             <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${fill}" />
-            <text x="${(cx + 6).toFixed(1)}" y="${(cy + 3).toFixed(1)}" fill="currentColor" font-size="10" font-family="var(--font-mono)">${escapeHtml(k.id)}</text>
+            <text x="${(cx + off.dx).toFixed(1)}" y="${(cy + off.dy).toFixed(1)}" text-anchor="${off.anchor}" fill="currentColor" font-size="10" font-family="var(--font-mono)">${escapeHtml(k.id)}</text>
           `;
         })
         .join("");

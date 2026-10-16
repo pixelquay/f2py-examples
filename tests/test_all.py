@@ -11,6 +11,7 @@ from demof2py.auditor import (
     build_markdown_pr_report,
     build_project_zip_bundle,
     build_sarif_report,
+    compile_and_execute_custom_fortran,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -460,11 +461,11 @@ def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
         assert "fortnumerics/fortnumerics_pytorch_jax.py" in names
         assert "fortnumerics/bindings.rs" in names
         assert "fortnumerics/bindings.jl" in names
-        assert len(names) == 14
+        assert len(names) == 15
 
     # 4. Markdown PR Report & FastAPI v6.0.0 endpoints
     md_report = build_markdown_pr_report()
-    assert "# Fortran–Python `f2py` & C-ABI Readiness Report (`v7.0.0`)" in md_report
+    assert "# Fortran–Python `f2py` & C-ABI Readiness Report (`v8.0.0`)" in md_report
 
     client = TestClient(app)
     spec_resp = client.post(
@@ -487,7 +488,7 @@ def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
 
     md_resp = client.get("/api/v1/export/report.md")
     assert md_resp.status_code == 200
-    assert "v7.0.0" in md_resp.text
+    assert "v8.0.0" in md_resp.text
 
     native_spec = client.post("/api/v1/native-cli/run", json={"mode": "spectral"})
     assert native_spec.status_code == 200
@@ -526,7 +527,7 @@ def test_v7_autodiff_sparse_csr_fpm_wasm_and_sarif():
     assert np.allclose(y_sparse, [0.0, 0.0, 0.0, 5.0])
     assert comp_ratio > 0.5
 
-    # 3. fpm.toml & WebAssembly Bridge Scaffolder + 14-file .zip bundle
+    # 3. fpm.toml & WebAssembly Bridge Scaffolder + 15-file .zip bundle
     presets = {p["filename"]: p for p in load_project_presets()}
     scaf = generate_f2py_build_scaffold(
         presets["numerics.f90"]["code"],
@@ -546,12 +547,12 @@ def test_v7_autodiff_sparse_csr_fpm_wasm_and_sarif():
         names = set(zf.namelist())
         assert "fortnumerics/fpm.toml" in names
         assert "fortnumerics/wasm_bridge.js" in names
-        assert len(names) == 14
+        assert len(names) == 15
 
     # 4. SARIF 2.1.0 report & FastAPI v7.0.0 endpoints
     sarif = build_sarif_report()
     assert sarif["version"] == "2.1.0"
-    assert sarif["runs"][0]["tool"]["driver"]["version"] == "7.0.0"
+    assert sarif["runs"][0]["tool"]["driver"]["version"] == "8.0.0"
     assert len(sarif["runs"][0]["results"]) >= 1
 
     client = TestClient(app)
@@ -586,4 +587,114 @@ def test_v7_autodiff_sparse_csr_fpm_wasm_and_sarif():
     assert cli_main(["report-sarif"]) == 0
 
 
+def test_v8_crank_nicolson_newton_roofline_sandbox_and_pyproject():
+    import io
+    import zipfile
 
+    # 1. CrankNicolson1D unconditional stability beyond explicit CFL limit (CFL = 1.28 > 0.5)
+    n = 41
+    steps = 30
+    alpha = 0.02
+    dx = 1.0 / (n - 1)
+    dt = 0.04
+    x_grid = np.linspace(0.0, 1.0, n, dtype=np.float64)
+    u_init = np.asfortranarray(np.sin(np.pi * x_grid), dtype=np.float64)
+    u_cn, cfl_cn, max_err = fortnumerics.cranknicolson1d(steps, alpha, dx, dt, u_init)
+    assert cfl_cn == approx(1.28, rel=1e-6)
+    assert max_err < 2e-3
+    assert 0.0 < u_cn[n // 2] < 1.0
+
+    # 2. NewtonSystem2D quadratic convergence on x^2 + y^2 = 1 and y = x^3
+    x_root, y_root, traj_x, traj_y, res_hist, iters_taken = fortnumerics.newtonsystem2d(
+        1.2, 1.2, 1.0, 15, 1e-14
+    )
+    assert x_root ** 2 + y_root ** 2 == approx(1.0, abs=1e-12)
+    assert x_root ** 3 - y_root == approx(0.0, abs=1e-12)
+    assert 1 <= iters_taken <= 8
+    assert res_hist[iters_taken] <= 1e-13
+
+    # 3. PEP 517 pyproject.toml scaffolder & 15-file .zip archive
+    presets = {p["filename"]: p for p in load_project_presets()}
+    scaf = generate_f2py_build_scaffold(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    assert "meson-python" in scaf["pyproject_toml"]
+    assert "[build-system]" in scaf["pyproject_toml"]
+
+    zip_bytes = build_project_zip_bundle(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        names = set(zf.namelist())
+        assert "fortnumerics/pyproject.toml" in names
+        assert len(names) == 15
+
+    # 4. Live Custom Fortran Compile & Execute Sandbox
+    sbx = compile_and_execute_custom_fortran(
+        presets["badcomment.f"]["code"],
+        filename="badcomment.f",
+        x_val=3.0,
+        y_val=4.0,
+    )
+    assert sbx["executed"] is True
+    assert sbx["result_value"] == approx(12.0)
+
+    # 5. FastAPI v8.0.0 endpoints
+    client = TestClient(app)
+    cn_resp = client.post(
+        "/api/v1/pde/crank-nicolson",
+        json={"n": 41, "steps": 30, "alpha": 0.02, "dt": 0.04},
+    )
+    assert cn_resp.status_code == 200
+    cn_data = cn_resp.json()
+    assert cn_data["cfl_number"] == approx(1.28)
+    assert cn_data["explicit_euler_stable"] is False
+    assert cn_data["unconditionally_stable"] is True
+    assert cn_data["max_err_vs_exact"] < 2e-3
+
+    nwt_resp = client.post(
+        "/api/v1/nonlinear/newton",
+        json={"x0": 1.2, "y0": 1.2, "r_circle": 1.0, "max_iters": 12},
+    )
+    assert nwt_resp.status_code == 200
+    nwt_data = nwt_resp.json()
+    assert nwt_data["converged"] is True
+    assert nwt_data["final_residual"] <= 1e-12
+
+    roof_get = client.get("/api/v1/benchmarks/roofline")
+    assert roof_get.status_code == 200
+    roof_data = roof_get.json()
+    assert roof_data["ridge_point_ai"] == approx(2.0)
+    assert len(roof_data["kernels"]) == 7
+
+    roof_post = client.post(
+        "/api/v1/benchmarks/roofline",
+        json={"peak_gflops": 128.0, "peak_bw_gbps": 32.0},
+    )
+    assert roof_post.status_code == 200
+    assert roof_post.json()["ridge_point_ai"] == approx(4.0)
+
+    exec_resp = client.post(
+        "/api/v1/auditor/execute",
+        json={"code": presets["badcomment.f"]["code"], "filename": "badcomment.f", "x": 5.0, "y": 6.0},
+    )
+    assert exec_resp.status_code == 200
+    assert exec_resp.json()["result_value"] == approx(30.0)
+
+    native_cn = client.post("/api/v1/native-cli/run", json={"mode": "cranknicolson"})
+    assert native_cn.status_code == 200
+    assert native_cn.json()["flag"] == "--cranknicolson"
+
+    native_nwt = client.post("/api/v1/native-cli/run", json={"mode": "newton"})
+    assert native_nwt.status_code == 200
+    assert native_nwt.json()["flag"] == "--newton"
+
+    # 6. CLI v8.0.0 subcommands
+    assert cli_main(["crank-nicolson", "-n", "41", "--steps", "20", "--dt", "0.04"]) == 0
+    assert cli_main(["newton", "--x0", "1.2", "--y0", "1.2", "--radius", "1.0"]) == 0
+    assert cli_main(["roofline", "--peak-gflops", "64.0", "--peak-bw", "32.0"]) == 0
+    assert cli_main(["sandbox-run", "--preset", "badcomment_f", "-x", "3.0", "-y", "4.0"]) == 0

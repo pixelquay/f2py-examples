@@ -69,7 +69,7 @@ However, Windows itself can be more challenging due to inconsistencies in Micros
 See the Windows f2py installation guide and troubleshooting
 [guide](https://www.scivision.dev/f2py-fortran-python-windows/).
 
-## Production Web Workbench, Native Fortran CLI & Polyglot SDK (`demof2py` v7.0.0)
+## Production Web Workbench, Native Fortran CLI & Polyglot SDK (`demof2py` v8.0.0)
 
 Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 
@@ -83,13 +83,17 @@ Or run in zero-setup Docker container mode:
 docker compose up --build
 ```
 
-Run CLI diagnostics, 1D Heat Diffusion PDE simulations, 4th-order Runge-Kutta (`RK4`) oscillator integration, 2D Poisson PDE Jacobi relaxation, Rayleigh-quotient dominant eigenpair iteration, $O(N)$ Thomas tridiagonal solving, vectorized `do concurrent` Black–Scholes European option & Greek pricing (`BlackScholesGrid`), Hann-windowed Spectral DFT power spectrum analysis (`SpectralDftPower`), Box–Muller Antithetic Monte Carlo option pricing (`MonteCarloOptionDp`), Forward-Mode Dual Automatic Differentiation vs. Finite-Difference V-Curve analysis (`AutoDiffRosenbrockDp`), Compressed Sparse Row ($O(\text{nnz})$ CSR) matrix-vector products (`CsrSpmvDp`), Fortran 77 $\rightarrow$ Fortran 2008 modernization + `ISO_C_BINDING` / `ctypes` / `PyTorch` / `JAX` / `Rust FFI` / `Julia ccall` / `fpm.toml` / `WebAssembly` polyglot wrapper generation, GitHub PR Markdown (`report-md`) & SARIF 2.1.0 (`report-sarif`) report export, and `.pyf`/`meson.build`/`CMakeLists.txt` build scaffolding directly:
+Run CLI diagnostics, 1D Heat Diffusion PDE simulations, Unconditionally Stable 2nd-Order Implicit Crank–Nicolson PDE solving (`CrankNicolson1D`), 2D Coupled Nonlinear System Newton–Raphson root-finding (`NewtonSystem2D`), HPC Roofline Model & Arithmetic Intensity analysis (`roofline`), 4th-order Runge-Kutta (`RK4`) oscillator integration, 2D Poisson PDE Jacobi relaxation, Rayleigh-quotient dominant eigenpair iteration, $O(N)$ Thomas tridiagonal solving, vectorized `do concurrent` Black–Scholes European option & Greek pricing (`BlackScholesGrid`), Hann-windowed Spectral DFT power spectrum analysis (`SpectralDftPower`), Box–Muller Antithetic Monte Carlo option pricing (`MonteCarloOptionDp`), Forward-Mode Dual Automatic Differentiation vs. Finite-Difference V-Curve analysis (`AutoDiffRosenbrockDp`), Compressed Sparse Row ($O(\text{nnz})$ CSR) matrix-vector products (`CsrSpmvDp`), Live Native Shared-Library Sandbox execution (`sandbox-run`), Fortran 77 $\rightarrow$ Fortran 2008 modernization + `ISO_C_BINDING` / `ctypes` / `PyTorch` / `JAX` / `Rust FFI` / `Julia ccall` / `fpm.toml` / `WebAssembly` / PEP 517 `pyproject.toml` polyglot wrapper generation, GitHub PR Markdown (`report-md`) & SARIF 2.1.0 (`report-sarif`) report export, and `.pyf`/`meson.build`/`CMakeLists.txt`/`pyproject.toml` build scaffolding directly:
 
 ```sh
 f2py-workbench demo -x 3 -y 2
 f2py-workbench precision
 f2py-workbench benchmark --workload dot_product --size 5000
 f2py-workbench pde --steps 35 --alpha 0.01 --pulse gaussian
+f2py-workbench crank-nicolson -n 41 --steps 30 --alpha 0.02 --dt 0.04
+f2py-workbench newton --x0 1.2 --y0 1.2 --radius 1.0
+f2py-workbench roofline --peak-gflops 64.0 --peak-bw 32.0
+f2py-workbench sandbox-run --preset badcomment_f -x 3.0 -y 4.0
 f2py-workbench ode --steps 120 --zeta 0.15
 f2py-workbench poisson -n 15 --iterations 80 --source dipole
 f2py-workbench eigen --preset spd_stiffness --iterations 60
@@ -121,8 +125,7 @@ meson compile -C builddir
 ./builddir/fortran_workbench --montecarlo
 ./builddir/fortran_workbench --autodiff
 ./builddir/fortran_workbench --sparse
+./builddir/fortran_workbench --cranknicolson
+./builddir/fortran_workbench --newton
 ```
-
-
-
 
