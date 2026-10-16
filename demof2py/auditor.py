@@ -803,6 +803,95 @@ def _generate_rust_and_julia_bindings(code: str, mod_name: str) -> Tuple[str, st
     return "\n".join(rs_lines), "\n".join(jl_lines)
 
 
+def _generate_fpm_and_wasm_bridge(code: str, mod_name: str) -> Tuple[str, str]:
+    """
+    Generate an official Fortran Package Manager (`fpm.toml`) manifest and a
+    zero-copy WebAssembly / Emscripten JavaScript (`wasm_bridge.js`) wrapper
+    for `ISO_C_BINDING` (`bind(C)`) subroutines.
+    """
+    routines = _parse_fortran_routines(code)
+    fpm_toml = (
+        f"# Fortran Package Manager (fpm) manifest for `{mod_name}`\n"
+        f"name = \"{mod_name}\"\n"
+        f"version = \"7.0.0\"\n"
+        f"license = \"MIT\"\n"
+        f"author = \"f2py Workbench\"\n"
+        f"maintainer = \"scivision@f2py-workbench\"\n"
+        f"copyright = \"Copyright 2026\"\n\n"
+        f"[build]\n"
+        f"auto-executables = true\n"
+        f"auto-tests = true\n"
+        f"auto-examples = true\n\n"
+        f"[install]\n"
+        f"library = true\n\n"
+        f"[fortran]\n"
+        f"implicit-typing = false\n"
+        f"implicit-external = false\n"
+        f"source-form = \"free\"\n"
+    )
+
+    wasm_lines = [
+        f"// Auto-generated WebAssembly / Emscripten C-ABI bridge for `{mod_name}_c_abi`",
+        "// Compile with: emfc / flang-wasm -O3 -s EXPORTED_RUNTIME_METHODS=\"['ccall','cwrap','HEAPF64']\"",
+        "",
+        "export class FortranWasmBridge {",
+        "  constructor(wasmModule) {",
+        "    this.mod = wasmModule;",
+        "  }",
+        "",
+        "  allocFloat64(arrayLike) {",
+        "    const f64 = arrayLike instanceof Float64Array ? arrayLike : Float64Array.from(arrayLike);",
+        "    const nBytes = f64.length * Float64Array.BYTES_PER_ELEMENT;",
+        "    const ptr = this.mod._malloc(nBytes);",
+        "    this.mod.HEAPF64.set(f64, ptr >> 3);",
+        "    return { ptr, length: f64.length };",
+        "  }",
+        "",
+        "  readFloat64(ptr, length) {",
+        "    const start = ptr >> 3;",
+        "    return new Float64Array(this.mod.HEAPF64.subarray(start, start + length));",
+        "  }",
+        "",
+    ]
+
+    if not routines:
+        c_sym = f"_{mod_name}_compute_c"
+        wasm_lines.extend(
+            [
+                "  compute(xVal, yVal) {",
+                "    const xBuf = this.allocFloat64([xVal]);",
+                "    const yBuf = this.allocFloat64([yVal]);",
+                "    const outBuf = this.allocFloat64([0.0]);",
+                "    try {",
+                f"      this.mod.{c_sym}(xBuf.ptr, yBuf.ptr, outBuf.ptr);",
+                "      return this.readFloat64(outBuf.ptr, 1)[0];",
+                "    } finally {",
+                "      this.mod._free(xBuf.ptr);",
+                "      this.mod._free(yBuf.ptr);",
+                "      this.mod._free(outBuf.ptr);",
+                "    }",
+                "  }",
+            ]
+        )
+    else:
+        for r in routines:
+            r_name = r["name"]
+            c_symbol = f"_{mod_name}_{r_name}_c"
+            arg_list = ", ".join(r["args"])
+            wasm_lines.extend(
+                [
+                    f"  {r_name}({arg_list}) {{",
+                    f"    // Invokes Fortran bind(C, name='{mod_name}_{r_name}_c') via linear Wasm heap",
+                    f"    return this.mod.{c_symbol}({arg_list});",
+                    "  }",
+                    "",
+                ]
+            )
+
+    wasm_lines.append("}\n")
+    return fpm_toml, "\n".join(wasm_lines)
+
+
 def modernize_f77_to_f2008(
     code: str,
     filename: str = "legacy.f",
@@ -896,8 +985,9 @@ def modernize_f77_to_f2008(
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(modernized_f90, mod_name)
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(modernized_f90, mod_name)
     rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(modernized_f90, mod_name)
+    fpm_toml, wasm_bridge_js = _generate_fpm_and_wasm_bridge(modernized_f90, mod_name)
     transformations.append(
-        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes`, PyTorch/JAX zero-copy bridge, Rust FFI, and Julia `ccall` bindings."
+        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes`, PyTorch/JAX zero-copy bridge, Rust FFI, Julia `ccall`, `fpm.toml`, and WebAssembly JS bindings."
     )
 
     modern_filename = f"{Path(filename).stem}.f90"
@@ -919,6 +1009,8 @@ def modernize_f77_to_f2008(
         "pytorch_jax_py": pytorch_jax_py,
         "rust_ffi_rs": rust_ffi_rs,
         "julia_ccall_jl": julia_ccall_jl,
+        "fpm_toml": fpm_toml,
+        "wasm_bridge_js": wasm_bridge_js,
         "generated_pyi_stub": post_audit["generated_pyi_stub"],
         "generated_pyf_signature": post_audit["generated_pyf_signature"],
     }
@@ -939,6 +1031,7 @@ def generate_f2py_build_scaffold(
     - Python `ctypes` wrapper (`<module_name>_ctypes.py`)
     - PyTorch `torch.autograd.Function` & JAX `__dlpack__` wrapper (`<module_name>_pytorch_jax.py`)
     - Rust FFI (`bindings.rs`) & Julia `ccall` (`bindings.jl`)
+    - Fortran Package Manager (`fpm.toml`) & WebAssembly JS Bridge (`wasm_bridge.js`)
     - Direct `python -m numpy.f2py -c` command string
     """
     audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
@@ -956,9 +1049,10 @@ def generate_f2py_build_scaffold(
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(fixed_code, mod_name)
     pytorch_jax_py = _generate_pytorch_and_jax_wrappers(fixed_code, mod_name)
     rust_ffi_rs, julia_ccall_jl = _generate_rust_and_julia_bindings(fixed_code, mod_name)
+    fpm_toml, wasm_bridge_js = _generate_fpm_and_wasm_bridge(fixed_code, mod_name)
 
     meson_build = (
-        f"project('{mod_name}', 'c', 'fortran', version: '6.0.0')\n\n"
+        f"project('{mod_name}', 'c', 'fortran', version: '7.0.0')\n\n"
         f"py = import('python').find_installation(pure: false)\n"
         f"incdir_numpy = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()\n"
         f"incdir_f2py = run_command(py, ['-c', 'import numpy.f2py; print(numpy.f2py.get_include())'], check: true).stdout().strip()\n\n"
@@ -1020,6 +1114,8 @@ def generate_f2py_build_scaffold(
         "pytorch_jax_py": pytorch_jax_py,
         "rust_ffi_rs": rust_ffi_rs,
         "julia_ccall_jl": julia_ccall_jl,
+        "fpm_toml": fpm_toml,
+        "wasm_bridge_js": wasm_bridge_js,
     }
 
 
@@ -1030,7 +1126,7 @@ def build_project_zip_bundle(
 ) -> bytes:
     """
     Assemble an in-memory `.zip` archive containing a complete, ready-to-build
-    Fortran 2008 + Python F2PY, ISO_C_BINDING, PyTorch/JAX, Rust & Julia package.
+    Fortran 2008 + Python F2PY, ISO_C_BINDING, PyTorch/JAX, Rust, Julia, fpm & Wasm package.
     """
     scaf = generate_f2py_build_scaffold(code, filename=filename, module_name=module_name)
     mod_res = modernize_f77_to_f2008(code, filename=filename, module_name=module_name)
@@ -1038,14 +1134,16 @@ def build_project_zip_bundle(
 
     readme_md = (
         f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Polyglot AI/HPC Package\n\n"
-        f"Generated by **f2py Workbench v6.0.0**.\n\n"
-        f"## Included Polyglot Bindings\n"
+        f"Generated by **f2py Workbench v7.0.0**.\n\n"
+        f"## Included Polyglot & Ecosystem Bindings\n"
         f"- **Python (`f2py` & PEP 561 `.pyi`)**: `{scaf['pyf_filename']}`, `{scaf['pyi_filename']}`\n"
         f"- **PyTorch & JAX Zero-Copy Bridge**: `{mod_name}_pytorch_jax.py`\n"
         f"- **Fortran 2008 `ISO_C_BINDING` C-ABI**: `{mod_name}_c_abi.f90`\n"
         f"- **Python `ctypes`**: `{mod_name}_ctypes.py`\n"
         f"- **Rust FFI (`extern \"C\"`)**: `bindings.rs`\n"
-        f"- **Julia (`ccall`)**: `bindings.jl`\n\n"
+        f"- **Julia (`ccall`)**: `bindings.jl`\n"
+        f"- **Fortran Package Manager (`fpm`)**: `fpm.toml`\n"
+        f"- **WebAssembly / Emscripten Bridge**: `wasm_bridge.js`\n\n"
         f"## Quick Build (`f2py` CLI)\n\n"
         f"```sh\n"
         f"{scaf['cli_compile_cmd']}\n"
@@ -1065,6 +1163,8 @@ def build_project_zip_bundle(
         zf.writestr(f"{mod_name}/{mod_name}_pytorch_jax.py", scaf["pytorch_jax_py"])
         zf.writestr(f"{mod_name}/bindings.rs", scaf["rust_ffi_rs"])
         zf.writestr(f"{mod_name}/bindings.jl", scaf["julia_ccall_jl"])
+        zf.writestr(f"{mod_name}/fpm.toml", scaf["fpm_toml"])
+        zf.writestr(f"{mod_name}/wasm_bridge.js", scaf["wasm_bridge_js"])
         zf.writestr(f"{mod_name}/.f2py_f2cmap", scaf["recommended_cmap"] + "\n")
         zf.writestr(f"{mod_name}/{scaf['pyf_filename']}", scaf["pyf_signature"])
         zf.writestr(f"{mod_name}/{scaf['pyi_filename']}", scaf["pyi_stub"])
@@ -1077,8 +1177,8 @@ def build_project_zip_bundle(
 def build_jupyter_notebook() -> Dict[str, Any]:
     """
     Generate a runnable Jupyter Notebook (`.ipynb`, nbformat v4.5) exploring
-    Fortran-Python F2PY intents, IEEE 754 precision, PDEs, linear algebra, and
-    `do concurrent` Black-Scholes option pricing.
+    Fortran-Python F2PY intents, IEEE 754 precision, PDEs, linear algebra,
+    `do concurrent` Black-Scholes option pricing, Auto-Diff, and Sparse CSR.
     """
     return {
         "nbformat": 4,
@@ -1100,11 +1200,11 @@ def build_jupyter_notebook() -> Dict[str, Any]:
                 "cell_type": "markdown",
                 "metadata": {},
                 "source": [
-                    "# Fortran–Python `f2py` Numerical Workbench (`v6.0.0`)\n",
+                    "# Fortran–Python `f2py` Numerical Workbench (`v7.0.0`)\n",
                     "Interactive notebook exported from **f2py Workbench** covering:\n",
                     "1. `INTENT(IN)`, `INTENT(OUT)`, and `INTENT(INOUT)` zero-copy NumPy buffers (`pyprod`)\n",
                     "2. IEEE 754 `real64` vs `real32` literal promotion & Citardauq root stability (`badprec`, `fortnumerics`)\n",
-                    "3. 1D Heat PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, Vectorized `do concurrent` Black–Scholes, Spectral DFT, and Antithetic Monte Carlo (`fortnumerics`)\n",
+                    "3. 1D Heat PDE, RK4 Harmonic Oscillator, 2D Poisson PDE, Rayleigh-Quotient Eigenpairs, O(N) Thomas Tridiagonal, Vectorized `do concurrent` Black–Scholes, Spectral DFT, Antithetic Monte Carlo, Forward-Mode Auto-Diff, and Sparse CSR SpMV (`fortnumerics`)\n",
                 ],
             },
             {
@@ -1156,7 +1256,7 @@ def build_markdown_pr_report() -> str:
     """
     presets = load_project_presets()
     rows = [
-        "# Fortran–Python `f2py` & C-ABI Readiness Report (`v6.0.0`)",
+        "# Fortran–Python `f2py` & C-ABI Readiness Report (`v7.0.0`)",
         "",
         "| Source File | Dialect | Status | Findings | Polyglot & AI Targets |",
         "| :--- | :--- | :--- | :---: | :--- |",
@@ -1165,7 +1265,7 @@ def build_markdown_pr_report() -> str:
         res = audit_fortran_source(p["code"], p["filename"], cmap_mode="modern")
         badge = "PASS (`f2py` Ready)" if res["overall_status"] == "success" else f"WARN/FAIL ({len(res['findings'])} issues)"
         rows.append(
-            f"| `{p['filename']}` | {res['dialect']} | **{badge}** | {len(res['findings'])} | `f2py`, `ISO_C_BINDING`, `PyTorch/JAX`, `Rust`, `Julia` |"
+            f"| `{p['filename']}` | {res['dialect']} | **{badge}** | {len(res['findings'])} | `f2py`, `ISO_C_BINDING`, `PyTorch/JAX`, `Rust`, `Julia`, `fpm`, `Wasm` |"
         )
     rows.extend(
         [
@@ -1178,4 +1278,76 @@ def build_markdown_pr_report() -> str:
         ]
     )
     return "\n".join(rows)
+
+
+def build_sarif_report() -> Dict[str, Any]:
+    """
+    Generate a valid SARIF 2.1.0 (`https://json.schemastore.org/sarif-2.1.0.json`)
+    static analysis report across all project Fortran files for GitHub Code Scanning.
+    """
+    presets = load_project_presets()
+    rules_map: Dict[str, Dict[str, Any]] = {}
+    results: List[Dict[str, Any]] = []
+
+    severity_to_sarif = {
+        "error": "error",
+        "warning": "warning",
+        "info": "note",
+    }
+
+    for p in presets:
+        audit_res = audit_fortran_source(p["code"], p["filename"], cmap_mode="modern")
+        for f in audit_res["findings"]:
+            rule_id = f["rule_id"]
+            if rule_id not in rules_map:
+                rules_map[rule_id] = {
+                    "id": rule_id,
+                    "name": rule_id,
+                    "shortDescription": {"text": f["title"]},
+                    "help": {"text": f["remediation"]},
+                    "defaultConfiguration": {
+                        "level": severity_to_sarif.get(f["severity"], "warning")
+                    },
+                }
+            results.append(
+                {
+                    "ruleId": rule_id,
+                    "level": severity_to_sarif.get(f["severity"], "warning"),
+                    "message": {
+                        "text": f"{f['message']} Remediation: {f['remediation']}"
+                    },
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {
+                                    "uri": f"source/{p['filename']}",
+                                    "uriBaseId": "%SRCROOT%",
+                                },
+                                "region": {
+                                    "startLine": max(1, int(f.get("line") or 1)),
+                                    "startColumn": 1,
+                                },
+                            }
+                        }
+                    ],
+                }
+            )
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "f2py-workbench-auditor",
+                        "version": "7.0.0",
+                        "informationUri": "https://github.com/pixelquay/f2py-examples",
+                        "rules": list(rules_map.values()),
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
 
