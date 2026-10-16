@@ -3,7 +3,12 @@ demof2py: Production Fortran-Python f2py Numerical Kernel & Diagnostic Workbench
 """
 from .kernels import execute_kernel, compare_all_intents, LIST_KERNELS
 from .precision import run_ieee754_benchmark, evaluate_cmap_precision
-from .auditor import audit_fortran_source, load_project_presets, verify_with_gfortran
+from .auditor import (
+    audit_fortran_source,
+    generate_f2py_build_scaffold,
+    load_project_presets,
+    verify_with_gfortran,
+)
 from .benchmarks import (
     run_performance_benchmark,
     simulate_heat_pde,
@@ -15,7 +20,7 @@ from .benchmarks import (
     build_diagnostic_bundle,
 )
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 __all__ = [
     "__version__",
@@ -25,6 +30,7 @@ __all__ = [
     "run_ieee754_benchmark",
     "evaluate_cmap_precision",
     "audit_fortran_source",
+    "generate_f2py_build_scaffold",
     "load_project_presets",
     "verify_with_gfortran",
     "run_performance_benchmark",

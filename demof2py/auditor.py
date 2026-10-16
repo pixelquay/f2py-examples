@@ -534,3 +534,91 @@ def verify_with_gfortran(code: str, filename: str = "snippet.f90") -> Dict[str, 
         "compiler_output": compiler_output,
     }
 
+
+def generate_f2py_build_scaffold(
+    code: str,
+    filename: str = "snippet.f90",
+    module_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generate a complete F2PY packaging scaffold from Fortran 77/90 source code:
+    - `.pyf` signature file (`<module_name>.pyf`)
+    - PEP 561 `.pyi` stub (`<module_name>.pyi`)
+    - `meson.build` extension definition (`meson-python` compatible)
+    - `CMakeLists.txt` extension definition (`scikit-build-core` compatible)
+    - Direct `python -m numpy.f2py -c` command string
+    """
+    audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
+    fixed_code = audit_res["fixed_code"]
+
+    mod_match = re.search(
+        r"^\s*module\s+([a-zA-Z0-9_]+)",
+        fixed_code,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    inferred_mod = mod_match.group(1).lower() if mod_match else Path(filename).stem.lower()
+    mod_name = re.sub(r"[^a-z0-9_]", "_", (module_name or inferred_mod).strip().lower()) or "fortmod"
+
+    pyi_stub, pyf_sig = _generate_stubs_from_source(fixed_code, filename)
+
+    meson_build = (
+        f"project('{mod_name}', 'c', 'fortran', version: '4.0.0')\n\n"
+        f"py = import('python').find_installation(pure: false)\n"
+        f"incdir_numpy = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()\n"
+        f"incdir_f2py = run_command(py, ['-c', 'import numpy.f2py; print(numpy.f2py.get_include())'], check: true).stdout().strip()\n\n"
+        f"f2py_src = custom_target('{mod_name}module.c',\n"
+        f"  input: ['{filename}'],\n"
+        f"  output: ['{mod_name}module.c', '{mod_name}-f2pywrappers2.f90'],\n"
+        f"  command: [py, '-m', 'numpy.f2py', '@INPUT@', '-m', '{mod_name}', '--lower', '--f2cmap', '.f2py_f2cmap']\n"
+        f")\n\n"
+        f"py.extension_module('{mod_name}',\n"
+        f"  ['{filename}', f2py_src, incdir_f2py / 'fortranobject.c'],\n"
+        f"  include_directories: [incdir_numpy, incdir_f2py],\n"
+        f"  install: true\n"
+        f")\n"
+    )
+
+    cmake_lists = (
+        f"cmake_minimum_required(VERSION 3.20)\n"
+        f"project({mod_name} LANGUAGES C Fortran)\n\n"
+        f"find_package(Python REQUIRED COMPONENTS Interpreter Development.Module NumPy)\n\n"
+        f"execute_process(\n"
+        f"  COMMAND \"${{Python_EXECUTABLE}}\" -c \"import numpy.f2py; print(numpy.f2py.get_include())\"\n"
+        f"  OUTPUT_VARIABLE F2PY_INCLUDE_DIR\n"
+        f"  OUTPUT_STRIP_TRAILING_WHITESPACE\n"
+        f")\n\n"
+        f"add_custom_command(\n"
+        f"  OUTPUT {mod_name}module.c {mod_name}-f2pywrappers2.f90\n"
+        f"  COMMAND \"${{Python_EXECUTABLE}}\" -m numpy.f2py\n"
+        f"          \"${{CMAKE_CURRENT_SOURCE_DIR}}/{filename}\" -m {mod_name} --lower\n"
+        f"  DEPENDS \"{filename}\"\n"
+        f")\n\n"
+        f"python_add_library({mod_name} MODULE\n"
+        f"  \"{filename}\"\n"
+        f"  \"{mod_name}module.c\"\n"
+        f"  \"{mod_name}-f2pywrappers2.f90\"\n"
+        f"  \"${{F2PY_INCLUDE_DIR}}/fortranobject.c\"\n"
+        f"  WITH_SOABI\n"
+        f")\n"
+        f"target_include_directories({mod_name} PRIVATE \"${{F2PY_INCLUDE_DIR}}\")\n"
+        f"target_link_libraries({mod_name} PRIVATE Python::NumPy)\n"
+    )
+
+    cli_compile_cmd = f"python -m numpy.f2py -c {filename} -m {mod_name} --f2cmap .f2py_f2cmap"
+
+    return {
+        "filename": filename,
+        "module_name": mod_name,
+        "overall_status": audit_res["overall_status"],
+        "overall_label": audit_res["overall_label"],
+        "recommended_cmap": audit_res["recommended_cmap"],
+        "cli_compile_cmd": cli_compile_cmd,
+        "pyf_filename": f"{mod_name}.pyf",
+        "pyf_signature": pyf_sig,
+        "pyi_filename": f"{mod_name}.pyi",
+        "pyi_stub": pyi_stub,
+        "meson_build": meson_build,
+        "cmake_lists": cmake_lists,
+    }
+
+
