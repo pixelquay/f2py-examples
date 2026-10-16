@@ -1,0 +1,49 @@
+name: wheels
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build_sdist:
+    name: Build source distribution (sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and pure-Python wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist --wheel --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist-and-pure-wheel
+          path: dist/*
+
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel with pypa/cibuildwheel
+        uses: pypa/cibuildwheel@v2.22.0
+        env:
+          CIBW_BUILD: "cp311-* cp312-*"
+          CIBW_SKIP: "*-musllinux* *-win32 *i686*"
+          CIBW_TEST_REQUIRES: "pytest httpx"
+          CIBW_TEST_COMMAND: "pytest {project}/tests/test_all.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
