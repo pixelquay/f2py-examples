@@ -34,6 +34,9 @@ jobs:
           python -m demof2py.cli eigen --preset spd_stiffness --iterations 50
           python -m demof2py.cli tridiag -n 15 --bc catenary
           python -m demof2py.cli blackscholes -n 41 --sigma 0.20
+          python -m demof2py.cli spectral -n 64 --freq1 5.0 --freq2 14.0
+          python -m demof2py.cli montecarlo --paths 10000 --sigma 0.25
+          python -m demof2py.cli report-md
           python -m demof2py.cli modernize --preset badcomment_f
           python -m demof2py.cli scaffold --preset numerics_f90
           python -m demof2py.cli audit --compile-check
@@ -53,6 +56,9 @@ jobs:
           meson test -C builddir --verbose
           ./builddir/fortran_workbench --all
           ./builddir/fortran_workbench --blackscholes
+          ./builddir/fortran_workbench --spectral
+          ./builddir/fortran_workbench --montecarlo
+
 
 
 

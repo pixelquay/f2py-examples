@@ -8,6 +8,7 @@ from demof2py.app import app
 from demof2py.auditor import (
     audit_fortran_source,
     build_jupyter_notebook,
+    build_markdown_pr_report,
     build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
@@ -412,4 +413,91 @@ def test_v5_blackscholes_modernizer_bundle_and_notebook():
 
     assert cli_main(["blackscholes", "-n", "41", "--sigma", "0.20"]) == 0
     assert cli_main(["modernize", "--preset", "badcomment_f"]) == 0
+
+
+def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
+    import io
+    import zipfile
+
+    # 1. SpectralDftPower kernel verification
+    n = 64
+    idx = np.arange(n, dtype=np.float64)
+    sig = 1.25 * np.sin(2.0 * np.pi * 5.0 * idx / n) + 0.65 * np.cos(2.0 * np.pi * 14.0 * idx / n)
+    power_out, peak_bin, peak_pow = fortnumerics.spectraldftpower(sig)
+    assert len(power_out) == n // 2 + 1
+    assert peak_bin == 5
+    assert peak_pow > 5.0
+
+    # 2. MonteCarloOptionDp kernel verification against Black-Scholes
+    call_est, put_est, std_err, paths_sample = fortnumerics.montecarlooptiondp(
+        25000, 100.0, 100.0, 0.05, 0.25, 1.0, 42
+    )
+    assert len(paths_sample) == 64
+    assert call_est == approx(12.336, rel=0.05)
+    assert put_est == approx(7.459, rel=0.05)
+    assert 0.01 < std_err < 0.25
+
+    # 3. Polyglot Scaffolder (PyTorch/JAX, Rust FFI, Julia ccall) & 9-file .zip bundle
+    presets = {p["filename"]: p for p in load_project_presets()}
+    scaf = generate_f2py_build_scaffold(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    assert "torch.autograd.Function" in scaf["pytorch_jax_py"]
+    assert "jax.pure_callback" in scaf["pytorch_jax_py"]
+    assert 'extern "C"' in scaf["rust_ffi_rs"]
+    assert "ccall((:" in scaf["julia_ccall_jl"]
+
+    zip_bytes = build_project_zip_bundle(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        names = set(zf.namelist())
+        assert "fortnumerics/fortnumerics_pytorch_jax.py" in names
+        assert "fortnumerics/bindings.rs" in names
+        assert "fortnumerics/bindings.jl" in names
+        assert len(names) == 12
+
+    # 4. Markdown PR Report & FastAPI v6.0.0 endpoints
+    md_report = build_markdown_pr_report()
+    assert "# Fortran–Python `f2py` & C-ABI Readiness Report (`v6.0.0`)" in md_report
+
+    client = TestClient(app)
+    spec_resp = client.post(
+        "/api/v1/signal/spectral",
+        json={"n": 64, "freq1": 5.0, "freq2": 14.0, "noise": 0.05},
+    )
+    assert spec_resp.status_code == 200
+    spec_data = spec_resp.json()
+    assert spec_data["peak_bin"] == 5
+    assert spec_data["max_err_vs_numpy_fft"] < 1e-12
+
+    mc_resp = client.post(
+        "/api/v1/quant/montecarlo",
+        json={"n_paths": 20000, "s0": 100.0, "strike": 100.0, "rate": 0.05, "sigma": 0.25, "maturity": 1.0, "seed": 42},
+    )
+    assert mc_resp.status_code == 200
+    mc_data = mc_resp.json()
+    assert mc_data["call_abs_error"] < 0.5
+    assert mc_data["ci_95_low"] < mc_data["bs_exact_call"] < mc_data["ci_95_high"]
+
+    md_resp = client.get("/api/v1/export/report.md")
+    assert md_resp.status_code == 200
+    assert "v6.0.0" in md_resp.text
+
+    native_spec = client.post("/api/v1/native-cli/run", json={"mode": "spectral"})
+    assert native_spec.status_code == 200
+    assert native_spec.json()["flag"] == "--spectral"
+
+    native_mc = client.post("/api/v1/native-cli/run", json={"mode": "montecarlo"})
+    assert native_mc.status_code == 200
+    assert native_mc.json()["flag"] == "--montecarlo"
+
+    assert cli_main(["spectral", "-n", "64", "--freq1", "5.0", "--freq2", "14.0"]) == 0
+    assert cli_main(["montecarlo", "--paths", "10000", "--sigma", "0.25"]) == 0
+    assert cli_main(["report-md"]) == 0
+
 
