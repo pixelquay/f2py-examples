@@ -14,6 +14,7 @@ from .auditor import (
     audit_fortran_source,
     generate_f2py_build_scaffold,
     load_project_presets,
+    modernize_f77_to_f2008,
     verify_with_gfortran,
 )
 from .benchmarks import (
@@ -109,6 +110,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     scaf_p = sub.add_parser("scaffold", help="Generate .pyf signature, .pyi stub, meson.build, and CMakeLists.txt")
     scaf_p.add_argument("--preset", default="numerics_f90", help="Preset ID to scaffold (default: numerics_f90)")
 
+    mod_p = sub.add_parser("modernize", help="Auto-modernize Fortran 77 (.f) to Fortran 2008 (.f90) + ISO_C_BINDING")
+    mod_p.add_argument("--preset", default="badcomment_f", help="Preset ID to modernize (default: badcomment_f)")
+
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -199,6 +203,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             json.dumps(
                 generate_f2py_build_scaffold(chosen["code"], chosen["filename"]),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "modernize":
+        presets = load_project_presets()
+        chosen = next((p for p in presets if p["id"] == args.preset), presets[0])
+        print(
+            json.dumps(
+                modernize_f77_to_f2008(chosen["code"], chosen["filename"]),
                 indent=2,
             )
         )
