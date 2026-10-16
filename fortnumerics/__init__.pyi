@@ -95,8 +95,22 @@ class _FortNumericsModule:
         vals: Union[Sequence[float], NDArray[np.floating]],
         x: Union[Sequence[float], NDArray[np.floating]],
     ) -> Tuple[NDArray[np.float64], float, float]: ...
+    @staticmethod
+    def cranknicolson1d(
+        steps: int,
+        alpha: float,
+        dx: float,
+        dt: float,
+        u_init: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float, float]: ...
+    @staticmethod
+    def newtonsystem2d(
+        x0: float,
+        y0: float,
+        r_circle: float = 1.0,
+        max_iters: int = 15,
+        tol: float = 1e-14,
+    ) -> Tuple[float, float, NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], int]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]
-
-

@@ -8,13 +8,13 @@ program fortran_workbench_cli
   use :: precision_mod, only: compute_precision
   use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
   use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
-  use :: fortnumerics, only: AutoDiffRosenbrockDp, CsrSpmvDp
+  use :: fortnumerics, only: AutoDiffRosenbrockDp, CsrSpmvDp, CrankNicolson1D, NewtonSystem2D
   implicit none
 
   character(len=64) :: arg
   integer :: argc
   logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri, run_bs, run_spec, run_mc
-  logical :: run_ad, run_csr
+  logical :: run_ad, run_csr, run_cn, run_nwt
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -32,6 +32,8 @@ program fortran_workbench_cli
   run_mc = .false.
   run_ad = .false.
   run_csr = .false.
+  run_cn = .false.
+  run_nwt = .false.
 
   if (argc > 0) then
     call get_command_argument(1, arg)
@@ -66,6 +68,10 @@ program fortran_workbench_cli
       run_ad = .true.
     case ('--sparse', '-csr')
       run_csr = .true.
+    case ('--cranknicolson', '-cn')
+      run_cn = .true.
+    case ('--newton', '-nr')
+      run_nwt = .true.
     case ('--help', '-h')
       call print_usage()
       stop 0
@@ -92,11 +98,13 @@ program fortran_workbench_cli
   if (run_all .or. run_mc)   call section_montecarlo()
   if (run_all .or. run_ad)   call section_autodiff()
   if (run_all .or. run_csr)  call section_sparse()
+  if (run_all .or. run_cn)   call section_crank_nicolson()
+  if (run_all .or. run_nwt)  call section_newton()
 
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes | --spectral | --montecarlo | --autodiff | --sparse]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes | --spectral | --montecarlo | --autodiff | --sparse | --cranknicolson | --newton]'
   end subroutine print_usage
 
 
@@ -334,5 +342,39 @@ contains
       '  Center y(3): ', y_sparse(3), '  Compression Ratio: ', comp_ratio, 'x  Dense Diff: ', max_err
   end subroutine section_sparse
 
-end program fortran_workbench_cli
 
+  subroutine section_crank_nicolson()
+    integer, parameter :: n = 41, steps = 30
+    real(dp) :: u_init(n), u_final(n), dx, dt, alpha, cfl, max_err, x_coord
+    integer :: i
+
+    dx = 1.0_dp / real(n - 1, dp)
+    alpha = 0.02_dp
+    dt = 0.05_dp
+    do i = 1, n
+      x_coord = real(i - 1, dp) * dx
+      u_init(i) = sin(3.14159265358979323846_dp * x_coord)
+    end do
+
+    call CrankNicolson1D(n, steps, alpha, dx, dt, u_init, u_final, cfl, max_err)
+
+    write(output_unit, '(/,a)') '[15] Unconditionally Stable Implicit Crank-Nicolson 1D Heat PDE (CrankNicolson1D)'
+    write(output_unit, '(a,f10.4,a,f10.6,a,es10.2)') &
+      '  CFL Number: ', cfl, '  Center u(0.5): ', u_final((n + 1) / 2), '  Max Analytical Err: ', max_err
+  end subroutine section_crank_nicolson
+
+
+  subroutine section_newton()
+    integer, parameter :: max_iters = 15
+    real(dp) :: x_root, y_root, traj_x(max_iters + 1), traj_y(max_iters + 1), res_hist(max_iters + 1)
+    integer :: iters_taken
+
+    call NewtonSystem2D(1.2_dp, 1.2_dp, 1.0_dp, max_iters, 1.0e-14_dp, &
+      x_root, y_root, traj_x, traj_y, res_hist, iters_taken)
+
+    write(output_unit, '(/,a)') '[16] 2D Coupled Nonlinear Newton-Raphson Solver (NewtonSystem2D)'
+    write(output_unit, '(a,f10.6,a,f10.6,a,i3,a,es10.2)') &
+      '  Root: (', x_root, ', ', y_root, ')  Iterations: ', iters_taken, '  Final ||F||_2: ', res_hist(iters_taken + 1)
+  end subroutine section_newton
+
+end program fortran_workbench_cli
