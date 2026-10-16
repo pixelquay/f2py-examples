@@ -144,8 +144,8 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, or tridiag",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, or blackscholes",
     )
 
 

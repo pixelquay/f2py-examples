@@ -1,0 +1,11 @@
+services:
+  f2py-workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: f2py-scientific-workbench
+    ports:
+      - "8765:8765"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
