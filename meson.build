@@ -12,7 +12,7 @@ prod_test_exe = executable('prod_test', 'tests/prog_fortprod.f90',
 floatprec_exe = executable('float_precision', 'floatPrecision.f90')
 
 workbench_cli_exe = executable('fortran_workbench',
-  ['fortran_workbench_cli.f90', 'floatPrecision.f90'],
+  'fortran_workbench_cli.f90',
   link_with: [prod_lib, badprec_lib, numerics_lib])
 
 test('fortran_prod_test', prod_test_exe)

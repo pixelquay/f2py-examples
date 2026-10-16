@@ -2,10 +2,9 @@ program fortran_workbench_cli
   !! Standalone native Fortran 2008 CLI application for running IEEE-754 precision
   !! diagnostics, F2PY intent semantics checks, 1D Heat Diffusion PDE simulation,
   !! column-major matrix multiplication, and Simpson numerical quadrature.
-  use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64, qp => real128, output_unit
+  use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64, output_unit
   use :: prod, only: ProdIntent, ProdPure, ProdInOut, ProdNoIntent, ProdVecIntent, ProdDotDp
   use :: badprec, only: pi32, pi64, pi64_true
-  use :: precision_mod, only: compute_precision
   use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, &
     Rk4HarmonicStep, JacobiPoisson2D
   use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, &
@@ -72,7 +71,7 @@ program fortran_workbench_cli
       run_csr = .true.
     case ('--cranknicolson', '-cn')
       run_cn = .true.
-    case ('--newton', '-nr')
+    case ('--newton', '-nwt')
       run_nwt = .true.
     case ('--help', '-h')
       call print_usage()
@@ -115,11 +114,13 @@ contains
   subroutine section_precision()
     real(sp) :: eps32
     real(dp) :: eps64
-    real(qp) :: eps128
-    integer :: bits32, bits64, bits128
+    integer :: bits32, bits64
     real(dp) :: r1_naive, r2_naive, r1_stable, r2_stable, cancel_err
 
-    call compute_precision(bits32, eps32, bits64, eps64, bits128, eps128)
+    bits32 = digits(1.0_sp)
+    eps32  = epsilon(1.0_sp)
+    bits64 = digits(1.0_dp)
+    eps64  = epsilon(1.0_dp)
     call QuadraticRootsCompare(1.0_dp, 1.0e8_dp, 1.0_dp, r1_naive, r2_naive, r1_stable, r2_stable, cancel_err)
 
     write(output_unit, '(/,a)') '[1] IEEE-754 Precision & Literal Kind Audit'
