@@ -10,7 +10,12 @@ from typing import List, Optional
 
 import uvicorn
 
-from .auditor import audit_fortran_source, load_project_presets, verify_with_gfortran
+from .auditor import (
+    audit_fortran_source,
+    generate_f2py_build_scaffold,
+    load_project_presets,
+    verify_with_gfortran,
+)
 from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
@@ -83,6 +88,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
     audit_p.add_argument("--compile-check", action="store_true", help="Run gfortran -fsyntax-only verification")
 
+    scaf_p = sub.add_parser("scaffold", help="Generate .pyf signature, .pyi stub, meson.build, and CMakeLists.txt")
+    scaf_p.add_argument("--preset", default="numerics_f90", help="Preset ID to scaffold (default: numerics_f90)")
+
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -144,6 +152,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             json.dumps(
                 simulate_poisson_2d(n=args.n, iterations=args.iterations, source_type=args.source),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "scaffold":
+        presets = load_project_presets()
+        chosen = next((p for p in presets if p["id"] == args.preset), presets[0])
+        print(
+            json.dumps(
+                generate_f2py_build_scaffold(chosen["code"], chosen["filename"]),
                 indent=2,
             )
         )

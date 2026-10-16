@@ -17,7 +17,12 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .auditor import audit_fortran_source, load_project_presets, verify_with_gfortran
+from .auditor import (
+    audit_fortran_source,
+    generate_f2py_build_scaffold,
+    load_project_presets,
+    verify_with_gfortran,
+)
 from .benchmarks import (
     build_diagnostic_bundle,
     evaluate_matrix_and_quadrature,
@@ -369,6 +374,15 @@ def post_audit_fortran(req: AuditRequest) -> Dict[str, Any]:
 def post_compile_check_fortran(req: AuditRequest) -> Dict[str, Any]:
     """Verify Fortran code syntax and warnings with GNU Fortran (-fsyntax-only -Wall -Wextra)."""
     return verify_with_gfortran(
+        code=req.code,
+        filename=req.filename,
+    )
+
+
+@app.post("/api/v1/diagnostics/scaffold")
+def post_scaffold_fortran(req: AuditRequest) -> Dict[str, Any]:
+    """Generate .pyf signature, PEP 561 .pyi stub, meson.build, and CMakeLists.txt packaging scaffolds."""
+    return generate_f2py_build_scaffold(
         code=req.code,
         filename=req.filename,
     )
