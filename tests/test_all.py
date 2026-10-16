@@ -7,8 +7,11 @@ from badprec import badprec
 from demof2py.app import app
 from demof2py.auditor import (
     audit_fortran_source,
+    build_jupyter_notebook,
+    build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
+    modernize_f77_to_f2008,
 )
 from demof2py.cli import main as cli_main
 from demof2py.precision import run_ieee754_benchmark
@@ -295,7 +298,44 @@ def test_fastapi_workbench_endpoints():
     assert "python module fortnumerics" in scaf["pyf_signature"]
     assert "py.extension_module" in scaf["meson_build"]
     assert "cmake_minimum_required" in scaf["cmake_lists"]
+    assert "iso_c_binding" in scaf["c_binding_f90"]
+    assert "ctypes.CDLL" in scaf["ctypes_wrapper_py"]
     assert "numpy.f2py" in scaf["cli_compile_cmd"]
+
+    bs_resp = client.post(
+        "/api/v1/quant/blackscholes",
+        json={"n": 41, "strike": 100.0, "rate": 0.05, "sigma": 0.20, "maturity": 1.0},
+    )
+    assert bs_resp.status_code == 200
+    bs_data = bs_resp.json()
+    assert bs_data["atm_call"] == approx(10.45058357, rel=1e-6)
+    assert bs_data["atm_put"] == approx(5.57352602, rel=1e-6)
+    assert bs_data["max_put_call_parity_error"] < 1e-12
+
+    mod_resp = client.post(
+        "/api/v1/diagnostics/modernize",
+        json={
+            "code": "      subroutine legacy(x, y)\n      real*8 x, y\n      y = x * 2.0d0\n      end",
+            "filename": "legacy.f",
+        },
+    )
+    assert mod_resp.status_code == 200
+    mod_data = mod_resp.json()
+    assert mod_data["target_filename"] == "legacy.f90"
+    assert "implicit none" in mod_data["modernized_code"]
+
+    zip_resp = client.post(
+        "/api/v1/diagnostics/bundle.zip",
+        json={"code": "subroutine f(x)\n  implicit none\n  real, intent(in) :: x\nend subroutine f\n", "filename": "f.f90"},
+    )
+    assert zip_resp.status_code == 200
+    assert zip_resp.headers["content-type"] == "application/zip"
+    assert len(zip_resp.content) > 200
+
+    nb_resp = client.get("/api/v1/export/notebook.ipynb")
+    assert nb_resp.status_code == 200
+    assert nb_resp.json()["nbformat"] == 4
+    assert len(nb_resp.json()["cells"]) >= 3
 
     index_page = client.get("/")
     assert index_page.status_code == 200
@@ -339,3 +379,37 @@ def test_v4_eigen_tridiag_scaffold_and_cli():
     assert cli_main(["eigen", "--preset", "spd_stiffness", "--iterations", "50"]) == 0
     assert cli_main(["tridiag", "-n", "15", "--bc", "catenary"]) == 0
     assert cli_main(["scaffold", "--preset", "numerics_f90"]) == 0
+
+
+def test_v5_blackscholes_modernizer_bundle_and_notebook():
+    s_grid = np.linspace(60.0, 140.0, 41, dtype=np.float64)
+    c_price, p_price, c_delta = fortnumerics.blackscholesgrid(
+        s_grid, 100.0, 0.05, 0.20, 1.0
+    )
+    assert c_price[20] == approx(10.45058357, rel=1e-6)
+    assert p_price[20] == approx(5.57352602, rel=1e-6)
+    assert c_delta[20] == approx(0.63683065, rel=1e-6)
+
+    presets = {p["filename"]: p for p in load_project_presets()}
+    mod = modernize_f77_to_f2008(presets["badcomment.f"]["code"], "badcomment.f")
+    assert mod["target_filename"] == "badcomment.f90"
+    assert mod["transformation_count"] >= 2
+    assert "implicit none" in mod["modernized_code"]
+    assert "bind(C" in mod["c_binding_f90"]
+    assert "ctypes.CDLL" in mod["ctypes_wrapper_py"]
+
+    zip_bytes = build_project_zip_bundle(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    assert zip_bytes[:2] == b"PK"
+    assert len(zip_bytes) > 500
+
+    nb = build_jupyter_notebook()
+    assert nb["nbformat"] == 4
+    assert len(nb["cells"]) >= 3
+
+    assert cli_main(["blackscholes", "-n", "41", "--sigma", "0.20"]) == 0
+    assert cli_main(["modernize", "--preset", "badcomment_f"]) == 0
+

@@ -69,7 +69,7 @@ However, Windows itself can be more challenging due to inconsistencies in Micros
 See the Windows f2py installation guide and troubleshooting
 [guide](https://www.scivision.dev/f2py-fortran-python-windows/).
 
-## Production Web Workbench, Native Fortran CLI & SDK (`demof2py` v4.0.0)
+## Production Web Workbench, Native Fortran CLI & SDK (`demof2py` v5.0.0)
 
 Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 
@@ -77,7 +77,13 @@ Launch the interactive Fortran–Python Web Workbench and FastAPI service:
 f2py-workbench serve --host 127.0.0.1 --port 8080
 ```
 
-Or run CLI diagnostics, 1D Heat Diffusion PDE simulations, 4th-order Runge-Kutta (`RK4`) oscillator integration, 2D Poisson PDE Jacobi relaxation, Rayleigh-quotient dominant eigenpair iteration, $O(N)$ Thomas tridiagonal solving, column-major matrix & Simpson quadrature evaluations, catastrophic cancellation root stability analysis, `gfortran` syntax verification, and `.pyf`/`meson.build`/`CMakeLists.txt` build scaffolding directly:
+Or run in zero-setup Docker container mode:
+
+```sh
+docker compose up --build
+```
+
+Run CLI diagnostics, 1D Heat Diffusion PDE simulations, 4th-order Runge-Kutta (`RK4`) oscillator integration, 2D Poisson PDE Jacobi relaxation, Rayleigh-quotient dominant eigenpair iteration, $O(N)$ Thomas tridiagonal solving, vectorized `do concurrent` Black–Scholes European option & Greek pricing (`BlackScholesGrid`), Fortran 77 $\rightarrow$ Fortran 2008 modernization + `ISO_C_BINDING` / `ctypes` wrapper generation, `gfortran` syntax verification, and `.pyf`/`meson.build`/`CMakeLists.txt` build scaffolding directly:
 
 ```sh
 f2py-workbench demo -x 3 -y 2
@@ -88,8 +94,10 @@ f2py-workbench ode --steps 120 --zeta 0.15
 f2py-workbench poisson -n 15 --iterations 80 --source dipole
 f2py-workbench eigen --preset spd_stiffness --iterations 60
 f2py-workbench tridiag -n 25 --bc catenary
+f2py-workbench blackscholes -n 41 --sigma 0.20
 f2py-workbench numerics --preset spd_stiffness --order F --integrand poly_quartic --points 31
 f2py-workbench quadratic -a 1.0 -b 1e8 -c 1.0
+f2py-workbench modernize --preset badcomment_f
 f2py-workbench audit --cmap modern --compile-check
 f2py-workbench scaffold --preset numerics_f90
 ```
@@ -102,6 +110,8 @@ Compile and run the standalone native Fortran 2008 numerical workbench binary vi
 meson setup builddir
 meson compile -C builddir
 ./builddir/fortran_workbench --all
+./builddir/fortran_workbench --blackscholes
 ```
+
 
 
