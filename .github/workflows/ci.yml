@@ -38,6 +38,10 @@ jobs:
           python -m demof2py.cli montecarlo --paths 10000 --sigma 0.25
           python -m demof2py.cli autodiff -x -1.2 -y 1.0
           python -m demof2py.cli sparse-csr -n 64 --bandwidth 1
+          python -m demof2py.cli crank-nicolson -n 41 --steps 20 --dt 0.04
+          python -m demof2py.cli newton --x0 1.2 --y0 1.2 --radius 1.0
+          python -m demof2py.cli roofline --peak-gflops 64.0 --peak-bw 32.0
+          python -m demof2py.cli sandbox-run --preset badcomment_f -x 3.0 -y 4.0
           python -m demof2py.cli report-md
           python -m demof2py.cli report-sarif
           python -m demof2py.cli modernize --preset badcomment_f
@@ -63,7 +67,6 @@ jobs:
           ./builddir/fortran_workbench --montecarlo
           ./builddir/fortran_workbench --autodiff
           ./builddir/fortran_workbench --sparse
-
-
-
+          ./builddir/fortran_workbench --cranknicolson
+          ./builddir/fortran_workbench --newton
 
