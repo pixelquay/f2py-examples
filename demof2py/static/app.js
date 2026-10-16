@@ -1382,13 +1382,179 @@
       outEl.textContent = (lastScaffoldData.pyf_signature || "").trim();
     } else if (activeScaffoldTab === "cmake") {
       outEl.textContent = (lastScaffoldData.cmake_lists || "").trim();
+    } else if (activeScaffoldTab === "c_abi") {
+      outEl.textContent = (lastScaffoldData.c_binding_f90 || "").trim();
+    } else if (activeScaffoldTab === "ctypes") {
+      outEl.textContent = (lastScaffoldData.ctypes_wrapper_py || "").trim();
     } else {
       outEl.textContent = (lastScaffoldData.meson_build || "").trim();
     }
   }
 
+  // Phase 21 (v5.0.0): Vectorized Black-Scholes Lab, F77->F2008 Modernizer, .zip Bundle & Jupyter Exporter
+  let activeBsSigma = 0.2;
 
+  async function runBlackScholesLab(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/quant/blackscholes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n: 41,
+          strike: 100.0,
+          rate: 0.05,
+          sigma: activeBsSigma,
+          maturity: 1.0,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderBlackScholesLab(data);
+      if (notify) {
+        showToast(`Evaluated BlackScholesGrid (σ=${Math.round(activeBsSigma * 100)}%, ${data.gflops_estimate} GFLOP/s)`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
 
+  function renderBlackScholesLab(data) {
+    if (!data) return;
+    const badgeEl = document.getElementById("bs-throughput-badge");
+    const subEl = document.getElementById("bs-regime-subtitle");
+    const atmEl = document.getElementById("bs-atm-val");
+    const parityEl = document.getElementById("bs-parity-val");
+    const gridEl = document.getElementById("bs-grid-label");
+    const svgEl = document.getElementById("bs-svg-chart");
+
+    if (badgeEl) {
+      badgeEl.textContent = `${data.gflops_estimate} GFLOP/s • ${data.bandwidth_gbps} GB/s`;
+    }
+    if (subEl) {
+      subEl.textContent = data.regime_label || "";
+    }
+    if (atmEl) {
+      atmEl.textContent = `C = ${Number(data.atm_call).toFixed(6)} • P = ${Number(data.atm_put).toFixed(6)} • Δ = ${Number(data.atm_delta).toFixed(6)}`;
+    }
+    if (parityEl) {
+      parityEl.textContent = `${Number(data.max_put_call_parity_error).toExponential(2)} (Exact IEEE-754 Parity)`;
+    }
+    if (gridEl) {
+      gridEl.textContent = `N = ${data.n} Spot Nodes`;
+    }
+    if (svgEl && Array.isArray(data.call_prices) && Array.isArray(data.put_prices)) {
+      const w = 600;
+      const h = 180;
+      const padX = 24;
+      const padY = 22;
+      const n = data.call_prices.length;
+      const maxVal = Math.max(1.0, ...data.call_prices, ...data.put_prices);
+
+      const mapPts = (arr) =>
+        arr
+          .map((val, idx) => {
+            const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+            const py = h - padY - (val / maxVal) * (h - 2 * padY);
+            return `${px.toFixed(1)},${py.toFixed(1)}`;
+          })
+          .join(" ");
+
+      const callPts = mapPts(data.call_prices);
+      const putPts = mapPts(data.put_prices);
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="var(--border-subtle)" stroke-width="1" />
+        <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.25" points="${callPts}" />
+        <polyline fill="none" stroke="var(--success-dot)" stroke-width="1.85" stroke-dasharray="5 3" points="${putPts}" />
+        <text x="${padX + 4}" y="15" fill="var(--accent-primary)" font-size="11" font-family="var(--font-mono)">— Call C(S)</text>
+        <text x="${padX + 110}" y="15" fill="var(--success-dot)" font-size="11" font-family="var(--font-mono)">-- Put P(S)</text>
+      `;
+    }
+  }
+
+  async function modernizeToF2008() {
+    const fnInput = document.getElementById("audit-filename-input");
+    const codeArea = document.getElementById("audit-code-textarea");
+    const ctxBar = document.getElementById("auditor-contextual-bar");
+    if (!fnInput || !codeArea) return;
+
+    try {
+      const resp = await fetch("/api/v1/diagnostics/modernize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: codeArea.value,
+          filename: fnInput.value.trim() || "legacy.f",
+          cmap_mode: state.cmapMode || "modern",
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      fnInput.value = data.target_filename || "modernized.f90";
+      codeArea.value = data.modernized_code || codeArea.value;
+      state.lastSavedCode = codeArea.value;
+      state.isEditorDirty = false;
+      if (ctxBar) ctxBar.hidden = true;
+      await runFortranAudit(false);
+      await runGfortranVerify(false);
+      showToast(`Modernized to ${data.target_filename} (${data.transformation_count} F2008 transforms)`);
+    } catch (_err) {
+      showToast("Failed to modernize Fortran source");
+    }
+  }
+
+  async function downloadProjectZipBundle() {
+    const fnInput = document.getElementById("audit-filename-input");
+    const codeArea = document.getElementById("audit-code-textarea");
+    if (!fnInput || !codeArea) return;
+
+    try {
+      const resp = await fetch("/api/v1/diagnostics/bundle.zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: codeArea.value,
+          filename: fnInput.value.trim() || "snippet.f90",
+          cmap_mode: state.cmapMode || "modern",
+        }),
+      });
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stem = (fnInput.value.trim() || "fortran").replace(/\.[^.]+$/, "");
+      a.download = `${stem}-f2py-bundle.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded ${stem}-f2py-bundle.zip`);
+    } catch (_err) {
+      showToast("Failed to download .zip bundle");
+    }
+  }
+
+  async function exportJupyterNotebook() {
+    try {
+      const resp = await fetch("/api/v1/export/notebook.ipynb");
+      if (!resp.ok) return;
+      const nb = await resp.json();
+      const blob = new Blob([JSON.stringify(nb, null, 2)], {
+        type: "application/x-ipynb+json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "f2py-scientific-workbench.ipynb";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Exported f2py-scientific-workbench.ipynb");
+    } catch (_err) {
+      showToast("Failed to export Jupyter notebook");
+    }
+  }
 
   // Bottom Sheet Modal Logic (Mobile #5 & #6)
   function openPresetSheet() {
@@ -1882,6 +2048,7 @@
 
     // PDE Stencil, Benchmark Lab & Export Report Listeners (Phase 7)
     document.getElementById("export-report-btn")?.addEventListener("click", exportDiagnosticReport);
+    document.getElementById("export-notebook-btn")?.addEventListener("click", exportJupyterNotebook);
     document.getElementById("run-pde-btn")?.addEventListener("click", () => runPdeSimulation(true));
     document.getElementById("run-bench-btn")?.addEventListener("click", () => runLiveBenchmark(true));
 
@@ -1998,6 +2165,8 @@
     });
 
     document.getElementById("verify-gfortran-btn")?.addEventListener("click", () => runGfortranVerify(true));
+    document.getElementById("modernize-f2008-btn")?.addEventListener("click", modernizeToF2008);
+    document.getElementById("download-bundle-zip-btn")?.addEventListener("click", downloadProjectZipBundle);
 
     // Phase 17: Eigenpair, Thomas Tridiagonal & Build Scaffolder controls
     document.querySelectorAll("[data-eigen-preset]").forEach((btn) => {
@@ -2021,6 +2190,18 @@
           b.setAttribute("aria-pressed", String(active));
         });
         runTridiagExplorer(true);
+      });
+    });
+
+    document.querySelectorAll("[data-bs-sigma]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeBsSigma = Number(btn.getAttribute("data-bs-sigma") || 0.2);
+        document.querySelectorAll("[data-bs-sigma]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runBlackScholesLab(true);
       });
     });
 
@@ -2087,6 +2268,7 @@
       runPoisson2DExplorer(false),
       runEigenExplorer(false),
       runTridiagExplorer(false),
+      runBlackScholesLab(false),
     ]);
     await Promise.all([
       runGfortranVerify(false),

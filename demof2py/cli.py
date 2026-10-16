@@ -21,6 +21,7 @@ from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
     run_performance_benchmark,
+    simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_poisson_2d,
@@ -102,6 +103,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         choices=["catenary", "helmholtz_screened", "boundary_drive"],
         default="catenary",
     )
+
+    bs_p = sub.add_parser("blackscholes", help="Run vectorized do concurrent Black-Scholes grid (`BlackScholesGrid`)")
+    bs_p.add_argument("-n", type=int, default=81)
+    bs_p.add_argument("--strike", type=float, default=100.0)
+    bs_p.add_argument("--sigma", type=float, default=0.25)
+    bs_p.add_argument("--rate", type=float, default=0.05)
+    bs_p.add_argument("--maturity", type=float, default=1.0)
 
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
@@ -192,6 +200,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             json.dumps(
                 simulate_thomas_tridiag(n=args.n, bc_type=args.bc),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "blackscholes":
+        print(
+            json.dumps(
+                simulate_blackscholes_grid(
+                    n=args.n,
+                    strike=args.strike,
+                    sigma=args.sigma,
+                    rate=args.rate,
+                    maturity=args.maturity,
+                ),
                 indent=2,
             )
         )

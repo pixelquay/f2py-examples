@@ -27,7 +27,7 @@
           <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
           <div class="brand-title-row">
             <span class="brand-title">f2py Workbench</span>
-            <span class="version-chip" id="header-version-chip">v4.0.0</span>
+            <span class="version-chip" id="header-version-chip">v5.0.0</span>
           </div>
         </div>
       </div>
@@ -203,6 +203,14 @@
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
               <span>Audit Fortran Source</span>
+            </button>
+            <button type="button" class="btn btn-overlay-secondary" id="export-notebook-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>Export Jupyter <code>.ipynb</code></span>
             </button>
           </div>
         </div>
@@ -1026,6 +1034,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip" data-native-mode="poisson" aria-pressed="false">--poisson</button>
               <button type="button" class="filter-chip" data-native-mode="eigen" aria-pressed="false">--eigen</button>
               <button type="button" class="filter-chip" data-native-mode="tridiag" aria-pressed="false">--tridiag</button>
+              <button type="button" class="filter-chip" data-native-mode="blackscholes" aria-pressed="false">--blackscholes</button>
             </div>
 
             <div class="code-pane">
@@ -1212,6 +1221,76 @@ assert z == 6.0  # isinstance(z, float)</pre>
           </article>
         </div>
       </div>
+
+      <!-- ================================================================ -->
+      <!-- VECTORIZED DO CONCURRENT BLACK-SCHOLES OPTION & GREEK LAB (v5.0) -->
+      <!-- ================================================================ -->
+      <div class="surface-card numerics-lab-section" id="blackscholes-section">
+        <div class="panel-header">
+          <div>
+            <span class="view-eyebrow">FORTRAN 2008 DO CONCURRENT SIMD VECTORIZATION</span>
+            <h2 class="panel-title">Vectorized Black&ndash;Scholes Option &amp; Greek Lab (<code>BlackScholesGrid</code>)</h2>
+            <p class="panel-subtitle">Evaluates European Call $C(S,t)$, Put $P(S,t)$, and analytic Delta $\Delta_C = \Phi(d_1)$ simultaneously across a contiguous spot grid using Fortran 2008 <code>do concurrent</code> and intrinsic <code>erf</code>.</p>
+          </div>
+          <span class="status-badge status-success" id="bs-throughput-badge">2.50 GFLOP/s &bull; 3.20 GB/s</span>
+        </div>
+
+        <div class="workbench-two-col">
+          <article class="surface-card sub-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Payoff &amp; Option Pricing Curve ($K = 100, r = 5\%, T = 1\text{ yr}$)</h3>
+                <p class="panel-subtitle" id="bs-regime-subtitle">Moderate Volatility (&sigma; = 20%, r = 5%, T = 1.0 yr)</p>
+              </div>
+              <div class="filter-chip-row" role="group" aria-label="Select Black-Scholes volatility sigma">
+                <button type="button" class="filter-chip" data-bs-sigma="0.15" aria-pressed="false">&sigma; = 15% (Low Vol)</button>
+                <button type="button" class="filter-chip is-active" data-bs-sigma="0.20" aria-pressed="true">&sigma; = 20% (Baseline)</button>
+                <button type="button" class="filter-chip" data-bs-sigma="0.40" aria-pressed="false">&sigma; = 40% (High Vol)</button>
+              </div>
+            </div>
+
+            <div class="pde-chart-frame" aria-label="Black-Scholes Call and Put option pricing chart">
+              <svg id="bs-svg-chart" viewBox="0 0 600 180" width="100%" height="180" role="img" aria-label="European Call and Put price curve across spot grid S">
+                <line x1="24" y1="156" x2="576" y2="156" stroke="var(--border-subtle)" stroke-width="1" />
+                <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.25" points="24,154 300,110 576,28" />
+                <polyline fill="none" stroke="var(--success-dot)" stroke-width="1.85" stroke-dasharray="5 3" points="24,42 300,124 576,155" />
+              </svg>
+            </div>
+          </article>
+
+          <article class="surface-card sub-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">At-The-Money ($S = K = 100$) Telemetry &amp; Put&ndash;Call Parity</h3>
+                <p class="panel-subtitle">Verifies exact arbitrage-free parity $C - P = S - K e^{-rT}$ to IEEE-754 <code>real64</code> machine precision.</p>
+              </div>
+            </div>
+
+            <dl class="telemetry-kv-grid">
+              <div class="kv-cell">
+                <dt>ATM Call / Put / Delta ($S = 100$)</dt>
+                <dd class="mono-text" id="bs-atm-val">C = 10.450584 &bull; P = 5.573526 &bull; &Delta; = 0.636831</dd>
+              </div>
+              <div class="kv-cell">
+                <dt>Max Put&ndash;Call Parity Residual $\max |C - P - (S - Ke^{-rT})|$</dt>
+                <dd class="mono-text" id="bs-parity-val">1.42e-14 (Exact IEEE-754 Parity)</dd>
+              </div>
+            </dl>
+
+            <div class="code-pane">
+              <div class="code-pane-header">
+                <span>Fortran 2008 <code>do concurrent</code> Kernel</span>
+                <span class="mono-text" id="bs-grid-label">N = 41 Spot Nodes</span>
+              </div>
+              <pre class="code-block mono-text" id="bs-code-preview">do concurrent (i = 1:n)
+  d1 = (log(s(i)/K) + (r + 0.5_dp*sigma**2)*T) / (sigma*sqrt(T))
+  nd1 = 0.5_dp * (1.0_dp + erf(d1 * inv_sqrt2))
+  call_price(i) = s(i)*nd1 - K*exp(-r*T)*nd2
+end do</pre>
+            </div>
+          </article>
+        </div>
+      </div>
     </section>
 
     <!-- ================================================================== -->
@@ -1299,12 +1378,30 @@ assert z == 6.0  # isinstance(z, float)</pre>
               </svg>
               <span>Apply Auto-Remediation</span>
             </button>
+            <button type="button" class="btn btn-secondary" id="modernize-f2008-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="16 3 21 3 21 8"/>
+                <line x1="4" y1="20" x2="21" y2="3"/>
+                <polyline points="21 16 21 21 16 21"/>
+                <line x1="15" y1="15" x2="21" y2="21"/>
+                <line x1="4" y1="4" x2="9" y2="9"/>
+              </svg>
+              <span>Modernize F77 &rarr; F2008</span>
+            </button>
             <button type="button" class="btn btn-secondary" id="verify-gfortran-btn">
               <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="4 17 10 11 4 5"/>
                 <line x1="12" y1="19" x2="20" y2="19"/>
               </svg>
               <span>Verify with <code>gfortran</code></span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="download-bundle-zip-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>Download <code>.zip</code> Bundle</span>
             </button>
             <button type="button" class="btn btn-primary" id="run-audit-btn">
               <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1364,7 +1461,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
 
           <div class="surface-card cmap-recommendation-card" id="f2py-scaffold-card">
             <div class="code-pane-header">
-              <span>F2PY Packaging Scaffolder (<code>.pyf</code>, <code>meson.build</code> &amp; <code>CMakeLists.txt</code>)</span>
+              <span>F2PY &amp; C-ABI Scaffolder (<code>meson.build</code>, <code>.pyf</code>, <code>CMake</code>, <code>ISO_C_BINDING</code> &amp; <code>ctypes</code>)</span>
               <button type="button" class="copy-chip-btn" data-copy-target="audit-scaffold-output" aria-label="Copy generated build scaffold">
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -1377,6 +1474,8 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip is-active" data-scaffold-tab="meson" aria-pressed="true">meson.build</button>
               <button type="button" class="filter-chip" data-scaffold-tab="pyf" aria-pressed="false">Signature (.pyf)</button>
               <button type="button" class="filter-chip" data-scaffold-tab="cmake" aria-pressed="false">CMakeLists.txt</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="c_abi" aria-pressed="false">ISO_C_BINDING (.f90)</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="ctypes" aria-pressed="false">Python ctypes (.py)</button>
             </div>
             <pre class="code-block mono-text" id="audit-scaffold-output"># Loading F2PY build scaffold...</pre>
           </div>
