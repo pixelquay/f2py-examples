@@ -455,6 +455,11 @@ def verify_with_gfortran(code: str, filename: str = "snippet.f90") -> Dict[str, 
     cmd_args = ["gfortran", "-fsyntax-only", "-Wall", "-Wextra", *dialect_flags, filename]
     cmd_display = " ".join(cmd_args)
 
+    audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
+    f77_comment_errs = [
+        f for f in audit_res["findings"] if f["rule_id"] == "F2PY-F77-COMMENT"
+    ]
+
     gfortran_bin = shutil.which("gfortran")
     if gfortran_bin:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -477,20 +482,23 @@ def verify_with_gfortran(code: str, filename: str = "snippet.f90") -> Dict[str, 
             )
             ver_line = (ver_proc.stdout.splitlines() or ["GNU Fortran"])[0]
             stderr_clean = proc.stderr.strip()
+            effective_rc = 1 if (proc.returncode != 0 or f77_comment_errs) else 0
+            if f77_comment_errs and not stderr_clean:
+                line_no = f77_comment_errs[0]["line"]
+                stderr_clean = (
+                    f"{filename}:{line_no}:22: Error: Non-standard inline '!' comment in fixed-form F77 (.f) rejected by f2py crackfortran"
+                )
             return {
                 "filename": filename,
                 "compiler_mode": "native_gfortran",
                 "compiler_version": ver_line,
                 "command": cmd_display,
-                "exit_code": proc.returncode,
-                "passed": proc.returncode == 0,
-                "status_type": "success" if proc.returncode == 0 else "danger",
-                "status_label": "gfortran Syntax OK (Exit 0)" if proc.returncode == 0 else "gfortran Syntax Error (Exit 1)",
+                "exit_code": effective_rc,
+                "passed": effective_rc == 0,
+                "status_type": "success" if effective_rc == 0 else "danger",
+                "status_label": "gfortran Syntax OK (Exit 0)" if effective_rc == 0 else "gfortran Syntax Error (Exit 1)",
                 "compiler_output": stderr_clean or f"{cmd_display}\n0 errors, 0 warnings — Fortran syntax verified.",
             }
-
-    # Standards-accurate GNU Fortran F77 / F2008 syntax & warning verifier
-    audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
     diag_lines: List[str] = []
     has_syntax_err = False
 

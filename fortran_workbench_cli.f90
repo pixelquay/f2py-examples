@@ -2,19 +2,21 @@ program fortran_workbench_cli
   !! Standalone native Fortran 2008 CLI application for running IEEE-754 precision
   !! diagnostics, F2PY intent semantics checks, 1D Heat Diffusion PDE simulation,
   !! column-major matrix multiplication, and Simpson numerical quadrature.
-  use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64, output_unit
+  use, intrinsic :: iso_fortran_env, only: sp => real32, dp => real64, qp => real128, output_unit
   use :: prod, only: ProdIntent, ProdPure, ProdInOut, ProdNoIntent, ProdVecIntent, ProdDotDp
   use :: badprec, only: pi32, pi64, pi64_true
   use :: precision_mod, only: compute_precision
-  use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
-  use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
+  use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, &
+    Rk4HarmonicStep, JacobiPoisson2D
+  use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, &
+    MonteCarloOptionDp
   use :: fortnumerics, only: AutoDiffRosenbrockDp, CsrSpmvDp, CrankNicolson1D, NewtonSystem2D
   implicit none
 
   character(len=64) :: arg
   integer :: argc
-  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri, run_bs, run_spec, run_mc
-  logical :: run_ad, run_csr, run_cn, run_nwt
+  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois
+  logical :: run_eig, run_tri, run_bs, run_spec, run_mc, run_ad, run_csr, run_cn, run_nwt
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -104,17 +106,20 @@ program fortran_workbench_cli
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes | --spectral | --montecarlo | --autodiff | --sparse | --cranknicolson | --newton]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde |' // &
+      ' --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes |' // &
+      ' --spectral | --montecarlo | --autodiff | --sparse | --cranknicolson | --newton]'
   end subroutine print_usage
 
 
   subroutine section_precision()
-    real(sp) :: eps32, huge32, tiny32
-    real(dp) :: eps64, huge64, tiny64
-    integer :: bits32, bits64
+    real(sp) :: eps32
+    real(dp) :: eps64
+    real(qp) :: eps128
+    integer :: bits32, bits64, bits128
     real(dp) :: r1_naive, r2_naive, r1_stable, r2_stable, cancel_err
 
-    call compute_precision(eps32, eps64, huge32, huge64, tiny32, tiny64, bits32, bits64)
+    call compute_precision(bits32, eps32, bits64, eps64, bits128, eps128)
     call QuadraticRootsCompare(1.0_dp, 1.0e8_dp, 1.0_dp, r1_naive, r2_naive, r1_stable, r2_stable, cancel_err)
 
     write(output_unit, '(/,a)') '[1] IEEE-754 Precision & Literal Kind Audit'
