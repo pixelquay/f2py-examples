@@ -31,6 +31,9 @@ jobs:
           pytest -v
           python -m demof2py.cli ode --steps 40 --zeta 0.15
           python -m demof2py.cli poisson -n 11 --source dipole
+          python -m demof2py.cli eigen --preset spd_stiffness --iterations 50
+          python -m demof2py.cli tridiag -n 15 --bc catenary
+          python -m demof2py.cli scaffold --preset numerics_f90
           python -m demof2py.cli audit --compile-check
 
   fortran-native-meson:
