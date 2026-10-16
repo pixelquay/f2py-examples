@@ -7,12 +7,12 @@ program fortran_workbench_cli
   use :: badprec, only: pi32, pi64, pi64_true
   use :: precision_mod, only: compute_precision
   use :: fortnumerics, only: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
-  use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag
+  use :: fortnumerics, only: PowerEigen3x3, ThomasTridiag, BlackScholesGrid
   implicit none
 
   character(len=64) :: arg
   integer :: argc
-  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri
+  logical :: run_all, run_prec, run_int, run_pde, run_la, run_quad, run_ode, run_pois, run_eig, run_tri, run_bs
 
   argc = command_argument_count()
   run_all = (argc == 0)
@@ -25,6 +25,7 @@ program fortran_workbench_cli
   run_pois = .false.
   run_eig = .false.
   run_tri = .false.
+  run_bs = .false.
 
   if (argc > 0) then
     call get_command_argument(1, arg)
@@ -49,6 +50,8 @@ program fortran_workbench_cli
       run_eig = .true.
     case ('--tridiag', '-t')
       run_tri = .true.
+    case ('--blackscholes', '-bs')
+      run_bs = .true.
     case ('--help', '-h')
       call print_usage()
       stop 0
@@ -70,11 +73,12 @@ program fortran_workbench_cli
   if (run_all .or. run_pois) call section_poisson()
   if (run_all .or. run_eig)  call section_eigen()
   if (run_all .or. run_tri)  call section_tridiag()
+  if (run_all .or. run_bs)   call section_blackscholes()
 
 contains
 
   subroutine print_usage()
-    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag]'
+    write(output_unit, '(a)') 'Usage: fortran_workbench [--all | --precision | --intents | --pde | --linalg | --quad | --ode | --poisson | --eigen | --tridiag | --blackscholes]'
   end subroutine print_usage
 
 
@@ -230,6 +234,19 @@ contains
     write(output_unit, '(a,f12.6,a,es12.4)') &
       '  Center Solution x(3): ', x_out(3), '  Max Residual ||Tx - b||_inf: ', res_inf
   end subroutine section_tridiag
+
+
+  subroutine section_blackscholes()
+    integer, parameter :: n = 5
+    real(dp) :: s_grid(n), call_p(n), put_p(n), delta_c(n)
+
+    s_grid = [80.0_dp, 90.0_dp, 100.0_dp, 110.0_dp, 120.0_dp]
+    call BlackScholesGrid(n, s_grid, 100.0_dp, 0.05_dp, 0.25_dp, 1.0_dp, call_p, put_p, delta_c)
+
+    write(output_unit, '(/,a)') '[10] Vectorized do concurrent Black-Scholes Grid (BlackScholesGrid)'
+    write(output_unit, '(a,f10.4,a,f10.4,a,f10.4)') &
+      '  ATM (S=100, K=100): Call=', call_p(3), '  Put=', put_p(3), '  Delta=', delta_c(3)
+  end subroutine section_blackscholes
 
 end program fortran_workbench_cli
 

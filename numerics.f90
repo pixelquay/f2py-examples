@@ -5,7 +5,7 @@ module fortnumerics
   implicit none
   private
   public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
-  public :: PowerEigen3x3, ThomasTridiag
+  public :: PowerEigen3x3, ThomasTridiag, BlackScholesGrid
 
 contains
 
@@ -287,6 +287,32 @@ contains
       if (err_i > residual_inf) residual_inf = err_i
     end do
   end subroutine ThomasTridiag
+
+
+  pure subroutine BlackScholesGrid(n, s_grid, strike, rate, sigma, maturity, call_price, put_price, call_delta)
+    !! Vectorized Fortran 2008 `do concurrent` European Call/Put option pricing
+    !! and Call Delta sensitivity across an N-point spot-price grid.
+    integer, intent(in) :: n
+    real(dp), intent(in) :: s_grid(n), strike, rate, sigma, maturity
+    real(dp), intent(out) :: call_price(n), put_price(n), call_delta(n)
+    real(dp) :: inv_sqrt2, vol_sqrt_t, disc_k, s_i, d1, d2, nd1, nd2
+    integer :: i
+
+    inv_sqrt2 = 1.0_dp / sqrt(2.0_dp)
+    vol_sqrt_t = max(1.0e-12_dp, sigma * sqrt(max(1.0e-12_dp, maturity)))
+    disc_k = strike * exp(-rate * maturity)
+
+    do concurrent (i = 1:n)
+      s_i = max(1.0e-12_dp, s_grid(i))
+      d1 = (log(s_i / strike) + (rate + 0.5_dp * sigma * sigma) * maturity) / vol_sqrt_t
+      d2 = d1 - vol_sqrt_t
+      nd1 = 0.5_dp * erfc(-d1 * inv_sqrt2)
+      nd2 = 0.5_dp * erfc(-d2 * inv_sqrt2)
+      call_price(i) = s_i * nd1 - disc_k * nd2
+      put_price(i)  = call_price(i) - s_i + disc_k
+      call_delta(i) = nd1
+    end do
+  end subroutine BlackScholesGrid
 
 end module fortnumerics
 
