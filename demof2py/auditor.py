@@ -661,6 +661,78 @@ def _generate_c_binding_and_ctypes(code: str, mod_name: str) -> Tuple[str, str]:
     return "\n".join(f90_lines), "\n".join(py_lines)
 
 
+def _generate_pytorch_and_jax_wrappers(code: str, mod_name: str) -> str:
+    """
+    Generate a zero-copy PyTorch (`torch.autograd.Function` / `__dlpack__`) and JAX
+    (`jax.pure_callback`) bridge for the Fortran module.
+    """
+    routines = _extract_routines_metadata(code)
+    first_routine = routines[0]["name"] if routines else "kernel"
+    lines = [
+        f'"""Auto-generated PyTorch (torch.autograd) & JAX (__dlpack__) zero-copy bridge for `{mod_name}`."""',
+        "from __future__ import annotations",
+        "import numpy as np",
+        "",
+        "try:",
+        "    import torch",
+        "except ImportError:",
+        "    torch = None  # type: ignore[assignment]",
+        "",
+        "try:",
+        "    import jax",
+        "    import jax.numpy as jnp",
+        "except ImportError:",
+        "    jax = None  # type: ignore[assignment]",
+        "",
+        f"import {mod_name}",
+        "",
+        "",
+        "def to_fortran_contiguous_numpy(tensor_or_array) -> np.ndarray:",
+        '    """Convert CPU torch.Tensor, JAX Array (__dlpack__), or ndarray to Fortran-contiguous float64."""',
+        '    if hasattr(tensor_or_array, "detach") and hasattr(tensor_or_array, "numpy"):',
+        "        arr = tensor_or_array.detach().cpu().numpy()",
+        '    elif hasattr(tensor_or_array, "__dlpack__"):',
+        "        arr = np.from_dlpack(tensor_or_array)",
+        "    else:",
+        "        arr = np.asarray(tensor_or_array, dtype=np.float64)",
+        "    return np.asfortranarray(arr, dtype=np.float64)",
+        "",
+        "",
+        "if torch is not None:",
+        f"    class {mod_name.capitalize()}AutogradOp(torch.autograd.Function):",
+        f'        """Differentiable PyTorch autograd wrapper around `{mod_name}.{first_routine}`."""',
+        "",
+        "        @staticmethod",
+        "        def forward(ctx, x_tensor: torch.Tensor, *extra_args):",
+        "            x_np = to_fortran_contiguous_numpy(x_tensor)",
+        f"            fn = getattr({mod_name}, \"{first_routine}\", None)",
+        "            out_np = fn(x_np, *extra_args) if fn is not None else x_np",
+        "            if isinstance(out_np, tuple):",
+        "                primary = np.asarray(out_np[0], dtype=np.float64)",
+        "                grad_hint = np.asarray(out_np[-1], dtype=np.float64)",
+        "                ctx.save_for_backward(torch.from_numpy(grad_hint))",
+        "                return torch.from_numpy(primary)",
+        "            res = np.asarray(out_np, dtype=np.float64)",
+        "            ctx.save_for_backward(x_tensor)",
+        "            return torch.from_numpy(res)",
+        "",
+        "        @staticmethod",
+        "        def backward(ctx, grad_output: torch.Tensor):",
+        "            (saved,) = ctx.saved_tensors",
+        "            return grad_output * saved, None",
+        "",
+        "",
+        "def jax_pure_callback_bridge(x_jax, *extra_args):",
+        f'    """Invoke `{mod_name}.{first_routine}` inside a `jax.jit` graph via `jax.pure_callback`."""',
+        "    if jax is None:",
+        f"        return getattr({mod_name}, \"{first_routine}\")(np.asfortranarray(x_jax), *extra_args)",
+        "    result_shape = jax.ShapeDtypeStruct(x_jax.shape, jnp.float64)",
+        f"    return jax.pure_callback(lambda arr: np.asarray(getattr({mod_name}, \"{first_routine}\")(np.asfortranarray(arr), *extra_args)), result_shape, x_jax)",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def modernize_f77_to_f2008(
     code: str,
     filename: str = "legacy.f",
@@ -752,8 +824,9 @@ def modernize_f77_to_f2008(
         )
 
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(modernized_f90, mod_name)
+    pytorch_jax_py = _generate_pytorch_and_jax_wrappers(modernized_f90, mod_name)
     transformations.append(
-        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi` and Python `ctypes` wrapper."
+        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi`, Python `ctypes` wrapper, and PyTorch/JAX zero-copy bridge."
     )
 
     modern_filename = f"{Path(filename).stem}.f90"
@@ -772,6 +845,7 @@ def modernize_f77_to_f2008(
         "modernized_code": modernized_f90,
         "c_binding_f90": c_binding_f90,
         "ctypes_wrapper_py": ctypes_wrapper_py,
+        "pytorch_jax_py": pytorch_jax_py,
         "generated_pyi_stub": post_audit["generated_pyi_stub"],
         "generated_pyf_signature": post_audit["generated_pyf_signature"],
     }
@@ -790,6 +864,7 @@ def generate_f2py_build_scaffold(
     - `CMakeLists.txt` extension definition (`scikit-build-core` compatible)
     - `ISO_C_BINDING` Fortran 2008 C-ABI wrapper (`<module_name>_c_abi.f90`)
     - Python `ctypes` wrapper (`<module_name>_ctypes.py`)
+    - PyTorch `torch.autograd.Function` & JAX `__dlpack__` wrapper (`<module_name>_pytorch_jax.py`)
     - Direct `python -m numpy.f2py -c` command string
     """
     audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
@@ -805,9 +880,10 @@ def generate_f2py_build_scaffold(
 
     pyi_stub, pyf_sig = _generate_stubs_from_source(fixed_code, filename)
     c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(fixed_code, mod_name)
+    pytorch_jax_py = _generate_pytorch_and_jax_wrappers(fixed_code, mod_name)
 
     meson_build = (
-        f"project('{mod_name}', 'c', 'fortran', version: '5.0.0')\n\n"
+        f"project('{mod_name}', 'c', 'fortran', version: '6.0.0')\n\n"
         f"py = import('python').find_installation(pure: false)\n"
         f"incdir_numpy = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()\n"
         f"incdir_f2py = run_command(py, ['-c', 'import numpy.f2py; print(numpy.f2py.get_include())'], check: true).stdout().strip()\n\n"
@@ -866,6 +942,7 @@ def generate_f2py_build_scaffold(
         "cmake_lists": cmake_lists,
         "c_binding_f90": c_binding_f90,
         "ctypes_wrapper_py": ctypes_wrapper_py,
+        "pytorch_jax_py": pytorch_jax_py,
     }
 
 
@@ -876,15 +953,15 @@ def build_project_zip_bundle(
 ) -> bytes:
     """
     Assemble an in-memory `.zip` archive containing a complete, ready-to-build
-    Fortran 2008 + Python F2PY & ISO_C_BINDING package.
+    Fortran 2008 + Python F2PY, ISO_C_BINDING & PyTorch/JAX package.
     """
     scaf = generate_f2py_build_scaffold(code, filename=filename, module_name=module_name)
     mod_res = modernize_f77_to_f2008(code, filename=filename, module_name=module_name)
     mod_name = scaf["module_name"]
 
     readme_md = (
-        f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Python Package\n\n"
-        f"Generated by **f2py Workbench v5.0.0**.\n\n"
+        f"# `{mod_name}` — Ready-to-Build Fortran 2008 + Python/AI Package\n\n"
+        f"Generated by **f2py Workbench v6.0.0**.\n\n"
         f"## Quick Build (`f2py` CLI)\n\n"
         f"```sh\n"
         f"{scaf['cli_compile_cmd']}\n"
@@ -901,6 +978,7 @@ def build_project_zip_bundle(
         zf.writestr(f"{mod_name}/{mod_res['modern_filename']}", mod_res["modernized_f90"])
         zf.writestr(f"{mod_name}/{mod_name}_c_abi.f90", scaf["c_binding_f90"])
         zf.writestr(f"{mod_name}/{mod_name}_ctypes.py", scaf["ctypes_wrapper_py"])
+        zf.writestr(f"{mod_name}/{mod_name}_pytorch_jax.py", scaf["pytorch_jax_py"])
         zf.writestr(f"{mod_name}/.f2py_f2cmap", scaf["recommended_cmap"] + "\n")
         zf.writestr(f"{mod_name}/{scaf['pyf_filename']}", scaf["pyf_signature"])
         zf.writestr(f"{mod_name}/{scaf['pyi_filename']}", scaf["pyi_stub"])
