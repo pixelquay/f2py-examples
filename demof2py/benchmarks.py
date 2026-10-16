@@ -858,6 +858,126 @@ def simulate_montecarlo_option(
     }
 
 
+def simulate_autodiff_vcurve(
+    x: float = -1.2,
+    y: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 Forward-Mode Dual-Number Automatic Differentiation kernel
+    (`AutoDiffRosenbrockDp`) on the 2D Rosenbrock function and compare against
+    1st-order Forward and 2nd-order Central Finite-Difference step sizes h in [10^-1, 10^-15].
+    """
+    x = max(-5.0, min(float(x), 5.0))
+    y = max(-5.0, min(float(y), 5.0))
+
+    exponents = list(range(1, 16))
+    h_steps = np.asfortranarray([10.0 ** (-k) for k in exponents], dtype=np.float64)
+
+    t0 = time.perf_counter()
+    (
+        fd_err_fwd,
+        fd_err_cen,
+        exact_gx,
+        exact_gy,
+        exact_val,
+        opt_h_cen,
+    ) = fortnumerics.autodiffrosenbrockdp(x, y, h_steps)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+
+    min_cen_err = float(np.min(fd_err_cen))
+    min_fwd_err = float(np.min(fd_err_fwd))
+    worst_cancel_err = float(fd_err_cen[-1])
+
+    return {
+        "x": round(x, 4),
+        "y": round(y, 4),
+        "n_steps": len(exponents),
+        "f_contiguous": bool(fd_err_cen.flags["F_CONTIGUOUS"]),
+        "exact_value": round(float(exact_val), 8),
+        "exact_grad": [round(float(exact_gx), 8), round(float(exact_gy), 8)],
+        "exact_grad_norm": round(float(math.hypot(exact_gx, exact_gy)), 8),
+        "dual_autodiff_error": 0.0,
+        "optimal_h_central": float(f"{opt_h_cen:.1e}"),
+        "min_central_fd_error": float(f"{min_cen_err:.3e}"),
+        "min_forward_fd_error": float(f"{min_fwd_err:.3e}"),
+        "cancellation_error_at_1e15": float(f"{worst_cancel_err:.3e}"),
+        "elapsed_ms": elapsed_ms,
+        "exponents": [-k for k in exponents],
+        "h_steps": [float(f"{v:.1e}") for v in h_steps],
+        "forward_fd_errors": [float(f"{v:.4e}") for v in fd_err_fwd],
+        "central_fd_errors": [float(f"{v:.4e}") for v in fd_err_cen],
+        "log10_forward_errors": [round(math.log10(max(1.0e-16, float(v))), 3) for v in fd_err_fwd],
+        "log10_central_errors": [round(math.log10(max(1.0e-16, float(v))), 3) for v in fd_err_cen],
+    }
+
+
+def simulate_sparse_csr_spmv(
+    n: int = 64,
+    bandwidth: int = 1,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 Compressed Sparse Row (CSR) SpMV kernel (`CsrSpmvDp`)
+    for a 1D/2D discretized banded operator and compare memory footprint and accuracy
+    against an O(N^2) dense matrix-vector product.
+    """
+    n = max(8, min(int(n), 256))
+    bandwidth = max(1, min(int(bandwidth), 4))
+
+    row_ptr_list: List[int] = [1]
+    col_idx_list: List[int] = []
+    vals_list: List[float] = []
+
+    for i in range(1, n + 1):
+        c_min = max(1, i - bandwidth)
+        c_max = min(n, i + bandwidth)
+        for j in range(c_min, c_max + 1):
+            col_idx_list.append(j)
+            if i == j:
+                vals_list.append(2.0 * float(bandwidth) + 0.5)
+            else:
+                vals_list.append(-1.0 / float(abs(i - j)))
+        row_ptr_list.append(len(col_idx_list) + 1)
+
+    nnz = len(vals_list)
+    row_ptr = np.asfortranarray(row_ptr_list, dtype=np.int32)
+    col_idx = np.asfortranarray(col_idx_list, dtype=np.int32)
+    vals = np.asfortranarray(vals_list, dtype=np.float64)
+    idx_grid = np.linspace(0.0, math.pi, n, dtype=np.float64)
+    x_vec = np.asfortranarray(np.sin(idx_grid) + 0.5 * np.cos(2.0 * idx_grid), dtype=np.float64)
+
+    t0 = time.perf_counter()
+    y_sparse, max_err_vs_dense, compression_ratio = fortnumerics.csrspmvdp(
+        row_ptr, col_idx, vals, x_vec
+    )
+    elapsed_s = max(1.0e-7, time.perf_counter() - t0)
+
+    dense_bytes = n * n * 8
+    csr_bytes = nnz * 8 + (nnz + n + 1) * 4
+    sparsity_pct = round(100.0 * (1.0 - float(nnz) / float(n * n)), 2)
+    memory_saved_pct = round(100.0 * (1.0 - float(csr_bytes) / float(dense_bytes)), 2)
+    gflops = round((2.0 * nnz / elapsed_s) / 1.0e9, 4)
+
+    preview_idx = np.linspace(0, n - 1, min(16, n), dtype=int)
+
+    return {
+        "n": n,
+        "bandwidth": bandwidth,
+        "nnz": nnz,
+        "dense_elements": n * n,
+        "f_contiguous": bool(y_sparse.flags["F_CONTIGUOUS"]),
+        "sparsity_percent": sparsity_pct,
+        "dense_bytes": dense_bytes,
+        "csr_bytes": csr_bytes,
+        "compression_ratio": round(float(compression_ratio), 2),
+        "memory_saved_percent": memory_saved_pct,
+        "max_err_vs_dense": float(f"{max_err_vs_dense:.3e}"),
+        "l2_norm_y": round(float(np.linalg.norm(y_sparse)), 6),
+        "gflops": gflops,
+        "y_preview": [round(float(y_sparse[i]), 5) for i in preview_idx],
+        "x_preview": [round(float(x_vec[i]), 5) for i in preview_idx],
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -876,6 +996,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "blackscholes": "--blackscholes",
         "spectral": "--spectral",
         "montecarlo": "--montecarlo",
+        "autodiff": "--autodiff",
+        "sparse": "--sparse",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -911,10 +1033,12 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     bs_res = simulate_blackscholes_grid()
     spec_res = simulate_spectral_dft()
     mc_res = simulate_montecarlo_option(n_paths=10000)
+    ad_res = simulate_autodiff_vcurve()
+    csr_res = simulate_sparse_csr_spmv()
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v6.0.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v7.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
@@ -925,6 +1049,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         f"  BlackSch : ATM Call = {bs_res['atm_call']:.4f}, Put = {bs_res['atm_put']:.4f}, Delta = {bs_res['atm_delta']:.4f}\n"
         f"  Spectral : Peak Bin k* = {spec_res['peak_bin']}, P(k*) = {spec_res['peak_power']:.4f}, SNR = {spec_res['snr_db']:.1f} dB\n"
         f"  MonteCar : MC Call = {mc_res['mc_call']:.4f} ± {mc_res['std_error']:.4f} (BS Exact = {mc_res['bs_exact_call']:.4f})\n"
+        f"  AutoDiff : Dual Grad = ({ad_res['exact_grad'][0]:.1f}, {ad_res['exact_grad'][1]:.1f}), Opt Central h* = {ad_res['optimal_h_central']:.1e}\n"
+        f"  SparseCSR: N={csr_res['n']}, nnz={csr_res['nnz']}, Compression = {csr_res['compression_ratio']:.2f}x, ||err||_inf = {csr_res['max_err_vs_dense']:.1e}\n"
         "========================================================================"
     )
     return {
@@ -943,7 +1069,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "6.0.0",
+        "version": "7.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -958,7 +1084,10 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "blackscholes_grid": simulate_blackscholes_grid(),
         "spectral_dft": simulate_spectral_dft(),
         "montecarlo_option": simulate_montecarlo_option(n_paths=10000),
+        "autodiff_vcurve": simulate_autodiff_vcurve(),
+        "sparse_csr_spmv": simulate_sparse_csr_spmv(),
     }
+
 
 
 

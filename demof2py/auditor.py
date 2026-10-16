@@ -1290,6 +1290,7 @@ def build_sarif_report() -> Dict[str, Any]:
     results: List[Dict[str, Any]] = []
 
     severity_to_sarif = {
+        "danger": "error",
         "error": "error",
         "warning": "warning",
         "info": "note",
@@ -1299,12 +1300,13 @@ def build_sarif_report() -> Dict[str, Any]:
         audit_res = audit_fortran_source(p["code"], p["filename"], cmap_mode="modern")
         for f in audit_res["findings"]:
             rule_id = f["rule_id"]
+            suggestion = f.get("suggestion") or f.get("remediation") or ""
             if rule_id not in rules_map:
                 rules_map[rule_id] = {
                     "id": rule_id,
                     "name": rule_id,
                     "shortDescription": {"text": f["title"]},
-                    "help": {"text": f["remediation"]},
+                    "help": {"text": suggestion},
                     "defaultConfiguration": {
                         "level": severity_to_sarif.get(f["severity"], "warning")
                     },
@@ -1314,7 +1316,7 @@ def build_sarif_report() -> Dict[str, Any]:
                     "ruleId": rule_id,
                     "level": severity_to_sarif.get(f["severity"], "warning"),
                     "message": {
-                        "text": f"{f['message']} Remediation: {f['remediation']}"
+                        "text": f"{f['message']} Remediation: {suggestion}"
                     },
                     "locations": [
                         {

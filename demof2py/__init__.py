@@ -26,6 +26,8 @@ from .benchmarks import (
     simulate_blackscholes_grid,
     simulate_spectral_dft,
     simulate_montecarlo_option,
+    simulate_autodiff_vcurve,
+    simulate_sparse_csr_spmv,
     run_native_fortran_cli,
     build_diagnostic_bundle,
 )
@@ -59,6 +61,8 @@ __all__ = [
     "simulate_blackscholes_grid",
     "simulate_spectral_dft",
     "simulate_montecarlo_option",
+    "simulate_autodiff_vcurve",
+    "simulate_sparse_csr_spmv",
     "run_native_fortran_cli",
     "build_diagnostic_bundle",
 ]
