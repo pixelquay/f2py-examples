@@ -221,6 +221,69 @@ class _FortNumericsModule:
         l2_norm = float(np.sqrt(np.sum(u_curr * u_curr) * h2))
         return u_curr, max_residual, l2_norm
 
+    @staticmethod
+    def powereigen3x3(
+        a: Union[Sequence[Sequence[float]], NDArray[np.floating]],
+        iterations: int,
+    ) -> Tuple[float, NDArray[np.float64], float]:
+        """Rayleigh-quotient power iteration for the dominant eigenpair of a 3x3 matrix."""
+        a_arr = np.asarray(a, dtype=np.float64, order="F")
+        if a_arr.shape != (3, 3):
+            raise ValueError("a must be a 3x3 matrix")
+
+        v = np.ones(3, dtype=np.float64) / np.sqrt(3.0)
+        for _ in range(max(1, int(iterations))):
+            av = a_arr @ v
+            norm_av = float(np.linalg.norm(av))
+            if norm_av > 1e-15:
+                v = -av / norm_av if av[0] < 0.0 else av / norm_av
+        av = a_arr @ v
+        eigval = float(np.dot(v, av))
+        res_norm = float(np.linalg.norm(av - eigval * v))
+        return eigval, v, res_norm
+
+    @staticmethod
+    def thomastridiag(
+        sub_d: Union[Sequence[float], NDArray[np.floating]],
+        main_d: Union[Sequence[float], NDArray[np.floating]],
+        super_d: Union[Sequence[float], NDArray[np.floating]],
+        rhs: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float]:
+        """O(N) Thomas algorithm (TDMA) for a tridiagonal linear system T * x = rhs."""
+        a_sub = np.asarray(sub_d, dtype=np.float64, order="F")
+        b_main = np.asarray(main_d, dtype=np.float64, order="F")
+        c_sup = np.asarray(super_d, dtype=np.float64, order="F")
+        d_rhs = np.asarray(rhs, dtype=np.float64, order="F")
+        if a_sub.ndim != 1 or not (a_sub.shape == b_main.shape == c_sup.shape == d_rhs.shape):
+            raise ValueError("sub_d, main_d, super_d, and rhs must be 1D arrays of equal length")
+        n = int(a_sub.shape[0])
+
+        c_star = np.zeros(n, dtype=np.float64)
+        d_star = np.zeros(n, dtype=np.float64)
+        x_out = np.zeros(n, dtype=np.float64)
+        if n == 0:
+            return x_out, 0.0
+        c_star[0] = c_sup[0] / b_main[0]
+        d_star[0] = d_rhs[0] / b_main[0]
+        for i in range(1, n):
+            denom = b_main[i] - a_sub[i] * c_star[i - 1]
+            if i < n - 1:
+                c_star[i] = c_sup[i] / denom
+            d_star[i] = (d_rhs[i] - a_sub[i] * d_star[i - 1]) / denom
+        x_out[n - 1] = d_star[n - 1]
+        for i in range(n - 2, -1, -1):
+            x_out[i] = d_star[i] - c_star[i] * x_out[i + 1]
+
+        res_inf = 0.0
+        for i in range(n):
+            lhs = b_main[i] * x_out[i]
+            if i > 0:
+                lhs += a_sub[i] * x_out[i - 1]
+            if i < n - 1:
+                lhs += c_sup[i] * x_out[i + 1]
+            res_inf = max(res_inf, abs(float(lhs - d_rhs[i])))
+        return x_out, float(res_inf)
+
 
 fortnumerics = _FortNumericsModule()
 

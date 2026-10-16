@@ -5,6 +5,7 @@ module fortnumerics
   implicit none
   private
   public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
+  public :: PowerEigen3x3, ThomasTridiag
 
 contains
 
@@ -203,6 +204,89 @@ contains
 
     l2_norm = sqrt(sum(u_out * u_out) * h2)
   end subroutine JacobiPoisson2D
+
+
+  subroutine PowerEigen3x3(a, iterations, eigval, eigvec, residual_norm)
+    !! Rayleigh-quotient power iteration for the dominant eigenpair (lambda_max, v_max)
+    !! of a 3x3 column-major double-precision matrix A.
+    real(dp), intent(in) :: a(3, 3)
+    integer, intent(in) :: iterations
+    real(dp), intent(out) :: eigval
+    real(dp), intent(out) :: eigvec(3)
+    real(dp), intent(out) :: residual_norm
+    real(dp) :: v(3), av(3), norm_av, res_vec(3)
+    integer :: it
+
+    v = [1.0_dp, 1.0_dp, 1.0_dp] / sqrt(3.0_dp)
+
+    do it = 1, max(1, iterations)
+      av(1) = a(1, 1) * v(1) + a(1, 2) * v(2) + a(1, 3) * v(3)
+      av(2) = a(2, 1) * v(1) + a(2, 2) * v(2) + a(2, 3) * v(3)
+      av(3) = a(3, 1) * v(1) + a(3, 2) * v(2) + a(3, 3) * v(3)
+      norm_av = sqrt(sum(av * av))
+      if (norm_av > 1.0e-15_dp) then
+        if (av(1) < 0.0_dp) then
+          v = -av / norm_av
+        else
+          v = av / norm_av
+        end if
+      end if
+    end do
+
+    av(1) = a(1, 1) * v(1) + a(1, 2) * v(2) + a(1, 3) * v(3)
+    av(2) = a(2, 1) * v(1) + a(2, 2) * v(2) + a(2, 3) * v(3)
+    av(3) = a(3, 1) * v(1) + a(3, 2) * v(2) + a(3, 3) * v(3)
+    eigval = sum(v * av)
+    eigvec = v
+
+    res_vec = av - eigval * v
+    residual_norm = sqrt(sum(res_vec * res_vec))
+  end subroutine PowerEigen3x3
+
+
+  subroutine ThomasTridiag(n, sub_d, main_d, super_d, rhs, x_out, residual_inf)
+    !! O(N) Thomas algorithm (TDMA) for solving a tridiagonal linear system T * x = rhs.
+    integer, intent(in) :: n
+    real(dp), intent(in) :: sub_d(n), main_d(n), super_d(n), rhs(n)
+    real(dp), intent(out) :: x_out(n)
+    real(dp), intent(out) :: residual_inf
+    real(dp) :: c_star(n), d_star(n), denom, row_lhs, err_i
+    integer :: i
+
+    c_star = 0.0_dp
+    d_star = 0.0_dp
+    x_out = 0.0_dp
+
+    if (n <= 0) then
+      residual_inf = 0.0_dp
+      return
+    end if
+
+    c_star(1) = super_d(1) / main_d(1)
+    d_star(1) = rhs(1) / main_d(1)
+
+    do i = 2, n
+      denom = main_d(i) - sub_d(i) * c_star(i - 1)
+      if (i < n) then
+        c_star(i) = super_d(i) / denom
+      end if
+      d_star(i) = (rhs(i) - sub_d(i) * d_star(i - 1)) / denom
+    end do
+
+    x_out(n) = d_star(n)
+    do i = n - 1, 1, -1
+      x_out(i) = d_star(i) - c_star(i) * x_out(i + 1)
+    end do
+
+    residual_inf = 0.0_dp
+    do i = 1, n
+      row_lhs = main_d(i) * x_out(i)
+      if (i > 1) row_lhs = row_lhs + sub_d(i) * x_out(i - 1)
+      if (i < n) row_lhs = row_lhs + super_d(i) * x_out(i + 1)
+      err_i = abs(row_lhs - rhs(i))
+      if (err_i > residual_inf) residual_inf = err_i
+    end do
+  end subroutine ThomasTridiag
 
 end module fortnumerics
 
