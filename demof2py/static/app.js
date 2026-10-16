@@ -1195,6 +1195,8 @@
     const normEl = document.getElementById("poisson-norm-val");
     const srcLabel = document.getElementById("poisson-source-label");
     const slicePre = document.getElementById("poisson-slice-pre");
+    const heatmapSvg = document.getElementById("poisson-heatmap-svg");
+    const heatmapSum = document.getElementById("poisson-heatmap-summary");
 
     if (badge) {
       badge.textContent = `F_CONTIGUOUS (${data.strides_bytes.join(", ")})B`;
@@ -1208,10 +1210,43 @@
     if (srcLabel) {
       srcLabel.textContent = data.source_label || "";
     }
+    if (heatmapSum) {
+      heatmapSum.textContent = `${data.n}×${data.n} Equipotential Field • max|u| = ${Number(data.max_abs_potential).toFixed(4)}`;
+    }
     if (slicePre && Array.isArray(data.grid_u) && data.grid_u.length > 0) {
       const mid = Math.floor(data.grid_u.length / 2);
       const midRow = data.grid_u[mid] || [];
       slicePre.textContent = `[ ${midRow.map((v) => v.toFixed(4)).join(", ")} ]`;
+    }
+    if (heatmapSvg && Array.isArray(data.grid_u) && data.grid_u.length > 0) {
+      const grid = data.grid_u;
+      const rows = grid.length;
+      const cols = Array.isArray(grid[0]) ? grid[0].length : rows;
+      const maxAbs = Math.max(1e-6, Number(data.max_abs_potential));
+      const w = 420;
+      const h = 140;
+      const padX = 12;
+      const padY = 10;
+      const cellW = (w - 2 * padX) / Math.max(1, cols);
+      const cellH = (h - 2 * padY) / Math.max(1, rows);
+
+      const rects = [];
+      for (let r = 0; r < rows; r += 1) {
+        const rowArr = grid[r] || [];
+        for (let c = 0; c < cols; c += 1) {
+          const val = Number(rowArr[c] || 0);
+          const norm = Math.max(-1, Math.min(1, val / maxAbs));
+          const hue = norm >= 0 ? 18 : 210;
+          const sat = Math.round(25 + Math.abs(norm) * 65);
+          const light = Math.round(18 + Math.abs(norm) * 44);
+          const x = padX + c * cellW;
+          const y = padY + r * cellH;
+          rects.push(
+            `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(cellW + 0.6).toFixed(1)}" height="${(cellH + 0.6).toFixed(1)}" fill="hsl(${hue} ${sat}% ${light}%)" />`
+          );
+        }
+      }
+      heatmapSvg.innerHTML = rects.join("");
     }
   }
 
@@ -1378,7 +1413,9 @@
     const outEl = document.getElementById("audit-scaffold-output");
     if (!outEl) return;
 
-    if (activeScaffoldTab === "pyf") {
+    if (activeScaffoldTab === "pyproject") {
+      outEl.textContent = (lastScaffoldData.pyproject_toml || "").trim();
+    } else if (activeScaffoldTab === "pyf") {
       outEl.textContent = (lastScaffoldData.pyf_signature || "").trim();
     } else if (activeScaffoldTab === "cmake") {
       outEl.textContent = (lastScaffoldData.cmake_lists || "").trim();
@@ -1857,6 +1894,286 @@
       showToast("Exported f2py-audit-report.sarif.json (SARIF 2.1.0)");
     } catch (_err) {
       showToast("Failed to export SARIF 2.1.0 report");
+    }
+  }
+
+  // Phase 33 (v8.0.0): Crank-Nicolson Implicit PDE, 2D Newton-Raphson, HPC Roofline & Live Sandbox
+  let activeCnDt = 0.04;
+  let activeNewtonPreset = "1.2_1.2_1.0";
+  let activeRooflineHw = "64_32";
+
+  async function runCrankNicolsonLab(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/pde/crank-nicolson", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n: 41,
+          steps: 30,
+          alpha: 0.02,
+          dt: activeCnDt,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderCrankNicolsonLab(data);
+      if (notify) {
+        showToast(
+          `Crank-Nicolson solved (CFL=${data.cfl_number}, ||err||∞=${Number(data.max_err_vs_exact).toExponential(2)})`
+        );
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderCrankNicolsonLab(data) {
+    if (!data) return;
+    const badgeEl = document.getElementById("cn-badge");
+    const centerEl = document.getElementById("cn-center-val");
+    const errEl = document.getElementById("cn-err-val");
+    const svgEl = document.getElementById("cn-svg-chart");
+
+    if (badgeEl) {
+      const expNote = data.explicit_euler_stable ? "Explicit Stable" : "Explicit Diverges!";
+      badgeEl.textContent = `CFL = ${Number(data.cfl_number).toFixed(2)} • CN Stable (${expNote})`;
+    }
+    if (centerEl) {
+      centerEl.textContent = `u_CN(0.5) = ${Number(data.center_u_cn).toFixed(5)} (Exact = ${Number(data.center_u_exact).toFixed(5)})`;
+    }
+    if (errEl) {
+      errEl.textContent = `Max Analytical Error = ${Number(data.max_err_vs_exact).toExponential(2)} • Explicit max|u| = ${Number(data.explicit_max_abs).toExponential(1)}`;
+    }
+    if (svgEl && Array.isArray(data.u_cn) && Array.isArray(data.u_exact)) {
+      const w = 420;
+      const h = 140;
+      const padX = 18;
+      const padY = 16;
+      const n = data.u_cn.length;
+      const toPts = (arr) =>
+        arr
+          .map((val, idx) => {
+            const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+            const clamped = Math.max(-0.2, Math.min(1.2, Number(val)));
+            const py = h - padY - ((clamped + 0.2) / 1.4) * (h - 2 * padY);
+            return `${px.toFixed(1)},${py.toFixed(1)}`;
+          })
+          .join(" ");
+
+      const exactPts = toPts(data.u_exact);
+      const cnPts = toPts(data.u_cn);
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+        <polyline fill="none" stroke="var(--text-muted)" stroke-width="2.0" stroke-dasharray="4 3" points="${exactPts}" />
+        <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.4" points="${cnPts}" />
+      `;
+    }
+  }
+
+  async function runNewton2DLab(notify = false) {
+    try {
+      const parts = activeNewtonPreset.split("_");
+      const x0 = Number(parts[0] || 1.2);
+      const y0 = Number(parts[1] || 1.2);
+      const r_circle = Number(parts[2] || 1.0);
+      const resp = await fetch("/api/v1/nonlinear/newton", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x0, y0, r_circle, max_iters: 12 }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderNewton2DLab(data);
+      if (notify) {
+        showToast(
+          `Newton-Raphson converged in ${data.iterations_taken} steps to (${Number(data.x_root).toFixed(5)}, ${Number(data.y_root).toFixed(5)})`
+        );
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderNewton2DLab(data) {
+    if (!data) return;
+    const badgeEl = document.getElementById("newton-badge");
+    const rootEl = document.getElementById("newton-root-val");
+    const resEl = document.getElementById("newton-res-val");
+    const svgEl = document.getElementById("newton-svg-chart");
+
+    if (badgeEl) {
+      badgeEl.textContent = `${data.iterations_taken} Iters • ||F||₂ = ${Number(data.final_residual).toExponential(2)}`;
+    }
+    if (rootEl) {
+      rootEl.textContent = `Root (x*, y*) = (${Number(data.x_root).toFixed(6)}, ${Number(data.y_root).toFixed(6)})`;
+    }
+    if (resEl) {
+      resEl.textContent = `Quadratic Convergence from (${data.x0}, ${data.y0}) on R = ${data.r_circle}`;
+    }
+    const logs = Array.isArray(data.log10_residuals) ? data.log10_residuals.map(Number) : [];
+    if (svgEl && logs.length > 1) {
+      const w = 420;
+      const h = 140;
+      const padX = 20;
+      const padY = 16;
+      const n = logs.length;
+      const minLog = Math.min(-16, ...logs);
+      const maxLog = Math.max(2, ...logs);
+      const span = Math.max(1.0, maxLog - minLog);
+
+      const pts = logs
+        .map((val, idx) => {
+          const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+          const py = h - padY - ((val - minLog) / span) * (h - 2 * padY);
+          return `${px.toFixed(1)},${py.toFixed(1)}`;
+        })
+        .join(" ");
+
+      const dots = logs
+        .map((val, idx) => {
+          const px = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+          const py = h - padY - ((val - minLog) / span) * (h - 2 * padY);
+          return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="var(--accent-primary)" />`;
+        })
+        .join("");
+
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+        <polyline fill="none" stroke="var(--accent-primary)" stroke-width="2.4" points="${pts}" />
+        ${dots}
+      `;
+    }
+  }
+
+  async function runRooflineLab(notify = false) {
+    try {
+      const parts = activeRooflineHw.split("_");
+      const peak_gflops = Number(parts[0] || 64.0);
+      const peak_bw_gbps = Number(parts[1] || 32.0);
+      const resp = await fetch("/api/v1/benchmarks/roofline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peak_gflops, peak_bw_gbps }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderRooflineLab(data);
+      if (notify) {
+        showToast(
+          `Updated HPC Roofline (Ridge I*=${data.ridge_point_ai} FLOP/B, Peak=${data.peak_gflops} GFLOP/s)`
+        );
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderRooflineLab(data) {
+    if (!data || !Array.isArray(data.kernels)) return;
+    const badgeEl = document.getElementById("roofline-badge");
+    const sumEl = document.getElementById("roofline-summary-val");
+    const svgEl = document.getElementById("roofline-svg-chart");
+
+    if (badgeEl) {
+      badgeEl.textContent = `Ridge I* = ${Number(data.ridge_point_ai).toFixed(2)} FLOP/B • ${data.memory_bound_count} Memory-Bound / ${data.compute_bound_count} Compute-Bound`;
+    }
+    if (sumEl) {
+      sumEl.textContent = `Peak: ${data.peak_gflops} GFLOP/s • DRAM: ${data.peak_bw_gbps} GB/s`;
+    }
+    if (svgEl) {
+      const w = 680;
+      const h = 180;
+      const padX = 36;
+      const padY = 24;
+      const minLogAi = -1.1; // ~0.08 FLOP/B
+      const maxLogAi = 1.1;  // ~12.5 FLOP/B
+      const minLogGf = 0.0;  // 1 GFLOP/s
+      const maxLogGf = Math.max(2.5, Math.log10(Number(data.peak_gflops)) + 0.18);
+
+      const mapX = (ai) =>
+        padX + ((Math.log10(Math.max(0.08, ai)) - minLogAi) / (maxLogAi - minLogAi)) * (w - 2 * padX);
+      const mapY = (gf) =>
+        h - padY - ((Math.log10(Math.max(1.0, gf)) - minLogGf) / (maxLogGf - minLogGf)) * (h - 2 * padY);
+
+      const ridgeAi = Number(data.ridge_point_ai);
+      const peakGf = Number(data.peak_gflops);
+      const bw = Number(data.peak_bw_gbps);
+      const leftAi = 0.1;
+      const rightAi = 11.0;
+
+      const xLeft = mapX(leftAi);
+      const yLeft = mapY(leftAi * bw);
+      const xRidge = mapX(ridgeAi);
+      const yRidge = mapY(peakGf);
+      const xRight = mapX(rightAi);
+
+      const kernelNodes = data.kernels
+        .map((k) => {
+          const cx = mapX(Number(k.arithmetic_intensity));
+          const cy = mapY(Number(k.attained_gflops));
+          const fill = k.regime === "Compute-Bound" ? "var(--success-dot)" : "var(--accent-primary)";
+          return `
+            <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${fill}" />
+            <text x="${(cx + 6).toFixed(1)}" y="${(cy + 3).toFixed(1)}" fill="currentColor" font-size="10" font-family="var(--font-mono)">${escapeHtml(k.id)}</text>
+          `;
+        })
+        .join("");
+
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+        <line x1="${xRidge.toFixed(1)}" y1="${yRidge.toFixed(1)}" x2="${xRidge.toFixed(1)}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="3 3" stroke-width="1" />
+        <polyline fill="none" stroke="var(--text-muted)" stroke-width="2.2" stroke-dasharray="5 3" points="${xLeft.toFixed(1)},${yLeft.toFixed(1)} ${xRidge.toFixed(1)},${yRidge.toFixed(1)} ${xRight.toFixed(1)},${yRidge.toFixed(1)}" />
+        ${kernelNodes}
+      `;
+    }
+  }
+
+  async function runLiveFortranSandbox(notify = false) {
+    const code = document.getElementById("audit-code-textarea")?.value || "";
+    const filename = document.getElementById("audit-filename-input")?.value || "snippet.f90";
+    if (!code.trim()) return;
+
+    const badge = document.getElementById("sandbox-status-badge");
+    const outPre = document.getElementById("audit-sandbox-output");
+    if (badge) {
+      badge.className = "status-badge status-info";
+      badge.textContent = "Compiling Shared Lib...";
+    }
+
+    try {
+      const resp = await fetch("/api/v1/auditor/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          filename,
+          x: 3.0,
+          y: 4.0,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (badge) {
+        badge.className = `status-badge ${data.executed ? "status-success" : "status-warning"}`;
+        badge.textContent = `${data.status_label} • ${data.exec_us} µs`;
+      }
+      if (outPre) {
+        outPre.textContent = [
+          `$ ${data.compile_command}`,
+          `Routine   : ${data.routine_name}(x=${data.x}, y=${data.y}) [bind(C, name="${data.symbol}")]`,
+          `Result    : ${data.result_value} (Compile: ${data.compile_ms} ms, Call: ${data.exec_us} µs)`,
+        ].join("\n");
+      }
+      if (notify) {
+        showToast(
+          `Executed ${data.routine_name}(${data.x}, ${data.y}) = ${data.result_value} (${data.status_label})`
+        );
+      }
+    } catch (_err) {
+      if (badge) {
+        badge.className = "status-badge status-danger";
+        badge.textContent = "Sandbox Error";
+      }
     }
   }
 
@@ -2566,6 +2883,49 @@
     });
     document.getElementById("sparse-run-btn")?.addEventListener("click", () => runSparseCsrLab(true));
 
+    // Phase 33 (v8.0.0): Crank-Nicolson, Newton-Raphson, HPC Roofline & Live Sandbox controls
+    document.querySelectorAll("[data-cn-dt]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeCnDt = Number(btn.getAttribute("data-cn-dt") || 0.04);
+        document.querySelectorAll("[data-cn-dt]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runCrankNicolsonLab(true);
+      });
+    });
+    document.getElementById("cn-run-btn")?.addEventListener("click", () => runCrankNicolsonLab(true));
+
+    document.querySelectorAll("[data-newton-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeNewtonPreset = btn.getAttribute("data-newton-preset") || "1.2_1.2_1.0";
+        document.querySelectorAll("[data-newton-preset]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runNewton2DLab(true);
+      });
+    });
+    document.getElementById("newton-run-btn")?.addEventListener("click", () => runNewton2DLab(true));
+
+    document.querySelectorAll("[data-roofline-hw]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeRooflineHw = btn.getAttribute("data-roofline-hw") || "64_32";
+        document.querySelectorAll("[data-roofline-hw]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runRooflineLab(true);
+      });
+    });
+
+    document.getElementById("compile-execute-sandbox-btn")?.addEventListener("click", () =>
+      runLiveFortranSandbox(true)
+    );
+
     document.querySelectorAll("[data-scaffold-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         activeScaffoldTab = btn.getAttribute("data-scaffold-tab") || "meson";
@@ -2634,10 +2994,14 @@
       runMonteCarloLab(false),
       runAutoDiffLab(false),
       runSparseCsrLab(false),
+      runCrankNicolsonLab(false),
+      runNewton2DLab(false),
+      runRooflineLab(false),
     ]);
     await Promise.all([
       runGfortranVerify(false),
       runScaffoldGenerator(false),
+      runLiveFortranSandbox(false),
     ]);
   }
 
