@@ -312,8 +312,110 @@ class _FortNumericsModule:
         delta_c = np.asarray(nd1, dtype=np.float64, order="F")
         return call_p, put_p, delta_c
 
+    @staticmethod
+    def spectraldftpower(
+        sig: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], int, float]:
+        """
+        Subroutine SpectralDftPower(n, sig, power_out, peak_bin, peak_pow)
+        Hann-windowed one-sided Discrete Fourier Transform (DFT) power spectrum.
+        Returns (power_out, peak_bin, peak_pow).
+        """
+        sig_arr = np.asarray(sig, dtype=np.float64, order="F").ravel()
+        n = int(sig_arr.shape[0])
+        if n < 2:
+            raise ValueError("SpectralDftPower requires at least 2 signal samples.")
+        n_bins = n // 2 + 1
+        idx = np.arange(n, dtype=np.float64)
+        win = 0.5 * (1.0 - np.cos(2.0 * math.pi * idx / float(max(1, n - 1))))
+        windowed = sig_arr * win
+
+        power_out = np.zeros(n_bins, dtype=np.float64, order="F")
+        peak_bin = 0
+        peak_pow = -1.0
+        for k in range(n_bins):
+            angles = 2.0 * math.pi * float(k) * idx / float(n)
+            re_sum = float(np.dot(windowed, np.cos(angles)))
+            im_sum = float(np.dot(windowed, -np.sin(angles)))
+            pwr = (re_sum * re_sum + im_sum * im_sum) / float(n)
+            power_out[k] = pwr
+            if pwr > peak_pow:
+                peak_pow = pwr
+                peak_bin = k
+        return power_out, int(peak_bin), float(peak_pow)
+
+    @staticmethod
+    def montecarlooptiondp(
+        n_paths: int,
+        s0: float,
+        strike: float,
+        rate: float,
+        sigma: float,
+        maturity: float,
+        seed: int = 42,
+    ) -> Tuple[float, float, float, NDArray[np.float64]]:
+        """
+        Subroutine MonteCarloOptionDp(n_paths, s0, strike, rate, sigma, maturity, seed,
+                                      call_est, put_est, std_err, paths_sample)
+        Deterministic Box-Muller + Antithetic Variates Geometric Brownian Motion
+        European option pricer. Returns (call_est, put_est, std_err, paths_sample).
+        """
+        n_pairs = max(1, int(n_paths) // 2)
+        t_safe = max(1.0e-12, float(maturity))
+        s0_f = float(s0)
+        k_f = float(strike)
+        r_f = float(rate)
+        v_f = float(sigma)
+        drift = (r_f - 0.5 * v_f * v_f) * t_safe
+        vol_sqrt_t = v_f * math.sqrt(t_safe)
+        disc = math.exp(-r_f * t_safe)
+
+        state = abs(int(seed))
+        if state == 0:
+            state = 1337
+
+        sum_c = 0.0
+        sum_p = 0.0
+        sum_c2 = 0.0
+        paths_sample = np.full(64, s0_f, dtype=np.float64, order="F")
+        two_pi = 2.0 * math.pi
+
+        for p in range(1, n_pairs + 1):
+            state = (state * 1103515245 + 12345) % 2147483648
+            u1 = max(1.0e-12, float(state) / 2147483648.0)
+            state = (state * 1103515245 + 12345) % 2147483648
+            u2 = float(state) / 2147483648.0
+
+            z_norm = math.sqrt(-2.0 * math.log(u1)) * math.cos(two_pi * u2)
+            s_pos = s0_f * math.exp(drift + vol_sqrt_t * z_norm)
+            s_neg = s0_f * math.exp(drift - vol_sqrt_t * z_norm)
+
+            pay_c = 0.5 * (max(0.0, s_pos - k_f) + max(0.0, s_neg - k_f))
+            pay_p = 0.5 * (max(0.0, k_f - s_pos) + max(0.0, k_f - s_neg))
+
+            sum_c += pay_c
+            sum_p += pay_p
+            sum_c2 += pay_c * pay_c
+
+            idx1 = 2 * p - 2
+            idx2 = 2 * p - 1
+            if idx1 < 64:
+                paths_sample[idx1] = s_pos
+            if idx2 < 64:
+                paths_sample[idx2] = s_neg
+
+        mean_c = sum_c / float(n_pairs)
+        mean_p = sum_p / float(n_pairs)
+        var_c = max(0.0, (sum_c2 / float(n_pairs)) - mean_c * mean_c)
+
+        call_est = float(disc * mean_c)
+        put_est = float(disc * mean_p)
+        std_err = float(disc * math.sqrt(var_c / float(n_pairs)))
+        return call_est, put_est, std_err, paths_sample
+
 
 fortnumerics = _FortNumericsModule()
 
 __all__ = ["fortnumerics"]
+
 

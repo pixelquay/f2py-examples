@@ -20,6 +20,7 @@ from . import __version__
 from .auditor import (
     audit_fortran_source,
     build_jupyter_notebook,
+    build_markdown_pr_report,
     build_project_zip_bundle,
     generate_f2py_build_scaffold,
     load_project_presets,
@@ -35,8 +36,10 @@ from .benchmarks import (
     simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
+    simulate_montecarlo_option,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_spectral_dft,
     simulate_thomas_tridiag,
 )
 from .kernels import LIST_KERNELS, compare_all_intents, execute_kernel
@@ -144,8 +147,8 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, or blackscholes",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes|spectral|montecarlo)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, blackscholes, spectral, or montecarlo",
     )
 
 
@@ -190,6 +193,24 @@ class BlackScholesExploreRequest(BaseModel):
     sigma: float = Field(default=0.25, ge=0.05, le=1.5, description="Annualized volatility sigma")
     rate: float = Field(default=0.05, ge=0.0, le=0.30, description="Risk-free interest rate r")
     maturity: float = Field(default=1.0, ge=0.05, le=10.0, description="Time to maturity T (years)")
+
+
+class SpectralDftExploreRequest(BaseModel):
+    n: int = Field(default=64, ge=16, le=256, description="Signal sample length N")
+    freq1: float = Field(default=5.0, ge=1.0, le=60.0, description="Primary harmonic bin frequency k1")
+    freq2: float = Field(default=14.0, ge=1.0, le=60.0, description="Secondary harmonic bin frequency k2")
+    noise: float = Field(default=0.05, ge=0.0, le=1.0, description="High-frequency harmonic noise amplitude")
+
+
+class MonteCarloExploreRequest(BaseModel):
+    n_paths: int = Field(default=20000, ge=500, le=200000, description="Number of Monte Carlo GBM paths")
+    s0: float = Field(default=100.0, ge=10.0, le=1000.0, description="Initial spot price S0")
+    strike: float = Field(default=100.0, ge=10.0, le=1000.0, description="Option strike price K")
+    rate: float = Field(default=0.05, ge=0.0, le=0.30, description="Risk-free interest rate r")
+    sigma: float = Field(default=0.25, ge=0.05, le=1.5, description="Annualized volatility sigma")
+    maturity: float = Field(default=1.0, ge=0.05, le=10.0, description="Time to maturity T (years)")
+    seed: int = Field(default=42, ge=1, le=999999, description="Deterministic LCG random seed")
+
 
 
 
@@ -408,10 +429,48 @@ def post_explore_blackscholes(req: BlackScholesExploreRequest) -> Dict[str, Any]
     )
 
 
+@app.post("/api/v1/signal/spectral")
+def post_explore_spectral(req: SpectralDftExploreRequest) -> Dict[str, Any]:
+    """Execute the Hann-windowed one-sided Discrete Fourier Transform kernel (`SpectralDftPower`)."""
+    return simulate_spectral_dft(
+        n=req.n,
+        freq1=req.freq1,
+        freq2=req.freq2,
+        noise=req.noise,
+    )
+
+
+@app.post("/api/v1/quant/montecarlo")
+def post_explore_montecarlo(req: MonteCarloExploreRequest) -> Dict[str, Any]:
+    """Execute the Box-Muller + Antithetic Variates Monte Carlo option pricing kernel (`MonteCarloOptionDp`)."""
+    return simulate_montecarlo_option(
+        n_paths=req.n_paths,
+        s0=req.s0,
+        strike=req.strike,
+        rate=req.rate,
+        sigma=req.sigma,
+        maturity=req.maturity,
+        seed=req.seed,
+    )
+
+
 @app.get("/api/v1/export/report")
 def get_export_report() -> Dict[str, Any]:
     """Export a full JSON diagnostic & benchmark report."""
     return build_diagnostic_bundle()
+
+
+@app.get("/api/v1/export/report.md")
+def get_export_report_markdown() -> Response:
+    """Export a publication-ready GitHub Flavored Markdown (.md) audit & benchmark report."""
+    md_content = build_markdown_pr_report()
+    return Response(
+        content=md_content,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="f2py-audit-benchmark-report.md"',
+        },
+    )
 
 
 @app.get("/api/v1/export/notebook.ipynb")

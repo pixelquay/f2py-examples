@@ -27,7 +27,7 @@
           <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
           <div class="brand-title-row">
             <span class="brand-title">f2py Workbench</span>
-            <span class="version-chip" id="header-version-chip">v5.0.0</span>
+            <span class="version-chip" id="header-version-chip">v6.0.0</span>
           </div>
         </div>
       </div>
@@ -211,6 +211,15 @@
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
               <span>Export Jupyter <code>.ipynb</code></span>
+            </button>
+            <button type="button" class="btn btn-overlay-secondary" id="export-md-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <span>Export PR <code>.md</code></span>
             </button>
           </div>
         </div>
@@ -1035,6 +1044,8 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip" data-native-mode="eigen" aria-pressed="false">--eigen</button>
               <button type="button" class="filter-chip" data-native-mode="tridiag" aria-pressed="false">--tridiag</button>
               <button type="button" class="filter-chip" data-native-mode="blackscholes" aria-pressed="false">--blackscholes</button>
+              <button type="button" class="filter-chip" data-native-mode="spectral" aria-pressed="false">--spectral</button>
+              <button type="button" class="filter-chip" data-native-mode="montecarlo" aria-pressed="false">--montecarlo</button>
             </div>
 
             <div class="code-pane">
@@ -1291,6 +1302,98 @@ end do</pre>
           </article>
         </div>
       </div>
+
+      <!-- Phase 25: Hann-Windowed Spectral DFT Power Spectrum & Antithetic Monte Carlo Option Pricer -->
+      <div class="section-block" id="spectral-mc-section">
+        <div class="section-header-row">
+          <div>
+            <span class="view-eyebrow">FORTRAN 2008 SIGNAL PROCESSING &amp; STOCHASTIC QUANT KERNELS</span>
+            <h2 class="section-title">Hann-Windowed Spectral DFT &amp; Antithetic Monte Carlo Lab (<code>numerics.f90</code>)</h2>
+            <p class="section-subtitle">
+              Evaluate one-sided Discrete Fourier Transform power spectra (<code>SpectralDftPower</code>) verified against <code>numpy.fft.rfft</code> and price European options via Box&ndash;Muller antithetic Geometric Brownian Motion paths (<code>MonteCarloOptionDp</code>).
+            </p>
+          </div>
+        </div>
+
+        <div class="workbench-two-col">
+          <!-- Left Card: SpectralDftPower -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Spectral DFT Power Spectrum (<code>SpectralDftPower</code>)</h3>
+                <p class="panel-subtitle" id="spectral-subtitle">Hann-Windowed Dual-Tone Harmonics (k<sub>1</sub> = 5, k<sub>2</sub> = 14) &bull; N = 64</p>
+              </div>
+              <span class="status-badge status-success" id="spectral-peak-badge">Peak Bin k* = 5 &bull; SNR = 34.2 dB</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select Spectral DFT harmonic preset">
+              <button type="button" class="filter-chip is-active" data-spec-preset="5_14" aria-pressed="true">Harmonics k = 5 &amp; 14</button>
+              <button type="button" class="filter-chip" data-spec-preset="8_21" aria-pressed="false">Harmonics k = 8 &amp; 21</button>
+              <button type="button" class="filter-chip" data-spec-preset="3_19" aria-pressed="false">Harmonics k = 3 &amp; 19 (Noisy)</button>
+            </div>
+
+            <div class="pde-chart-box" role="img" aria-label="One-sided Hann-windowed spectral power density across frequency bins">
+              <div class="pde-legend-row mono-text">
+                <span class="pde-legend-item"><span class="pde-swatch is-final"></span>Power P(k)</span>
+                <span id="spectral-peak-val">Dominant Bin k* = 5 (P = 12.48)</span>
+              </div>
+              <svg id="spectral-svg-chart" viewBox="0 0 420 140" class="pde-svg" preserveAspectRatio="none"></svg>
+            </div>
+
+            <div class="form-footer-actions">
+              <span class="meta-label mono-text" id="spectral-err-val">Max |P &minus; rfft| = 1.78e-15</span>
+              <button type="button" class="btn btn-primary btn-sm" id="spectral-run-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Compute DFT Spectrum</span>
+              </button>
+            </div>
+          </article>
+
+          <!-- Right Card: MonteCarloOptionDp -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Antithetic Monte Carlo Option Pricer (<code>MonteCarloOptionDp</code>)</h3>
+                <p class="panel-subtitle" id="mc-subtitle">Box&ndash;Muller GBM with Antithetic Variates (&pm;Z) &bull; S<sub>0</sub> = K = 100</p>
+              </div>
+              <span class="status-badge status-info" id="mc-badge">20,000 Paths &bull; Seed 42</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select Monte Carlo path count">
+              <button type="button" class="filter-chip" data-mc-paths="5000" aria-pressed="false">5,000 Paths</button>
+              <button type="button" class="filter-chip is-active" data-mc-paths="20000" aria-pressed="true">20,000 Paths</button>
+              <button type="button" class="filter-chip" data-mc-paths="50000" aria-pressed="false">50,000 Paths (High Precision)</button>
+            </div>
+
+            <dl class="runtime-kv-list">
+              <div class="runtime-kv-row">
+                <dt>Monte Carlo Call / Put Estimate</dt>
+                <dd class="mono-text" id="mc-call-val">Call = 10.4412 &bull; Put = 5.5681 (BS Exact = 10.4506)</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>95% Confidence Interval &amp; Standard Error</dt>
+                <dd class="mono-text" id="mc-ci-val">[10.2981, 10.5843] &bull; SE = 0.0730</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Convergence Error |MC &minus; BS Exact|</dt>
+                <dd class="mono-text" id="mc-err-val">Call |err| = 0.0094 &bull; Antithetic Variance Reduction Active</dd>
+              </div>
+            </dl>
+
+            <div class="form-footer-actions">
+              <span class="meta-label mono-text" id="mc-throughput-note">Deterministic 64-bit LCG</span>
+              <button type="button" class="btn btn-primary btn-sm" id="mc-run-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Simulate Monte Carlo Paths</span>
+              </button>
+            </div>
+          </article>
+        </div>
+      </div>
     </section>
 
     <!-- ================================================================== -->
@@ -1461,7 +1564,7 @@ end do</pre>
 
           <div class="surface-card cmap-recommendation-card" id="f2py-scaffold-card">
             <div class="code-pane-header">
-              <span>F2PY &amp; C-ABI Scaffolder (<code>meson.build</code>, <code>.pyf</code>, <code>CMake</code>, <code>ISO_C_BINDING</code> &amp; <code>ctypes</code>)</span>
+              <span>Polyglot F2PY &amp; C-ABI Scaffolder (<code>Meson</code>, <code>PyTorch/JAX</code>, <code>Rust</code>, <code>Julia</code> &amp; <code>ISO_C_BINDING</code>)</span>
               <button type="button" class="copy-chip-btn" data-copy-target="audit-scaffold-output" aria-label="Copy generated build scaffold">
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -1476,6 +1579,9 @@ end do</pre>
               <button type="button" class="filter-chip" data-scaffold-tab="cmake" aria-pressed="false">CMakeLists.txt</button>
               <button type="button" class="filter-chip" data-scaffold-tab="c_abi" aria-pressed="false">ISO_C_BINDING (.f90)</button>
               <button type="button" class="filter-chip" data-scaffold-tab="ctypes" aria-pressed="false">Python ctypes (.py)</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="pytorch" aria-pressed="false">PyTorch / JAX (.py)</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="rust" aria-pressed="false">Rust FFI (.rs)</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="julia" aria-pressed="false">Julia ccall (.jl)</button>
             </div>
             <pre class="code-block mono-text" id="audit-scaffold-output"># Loading F2PY build scaffold...</pre>
           </div>

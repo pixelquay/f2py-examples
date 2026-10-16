@@ -732,6 +732,132 @@ def simulate_blackscholes_grid(
     }
 
 
+def simulate_spectral_dft(
+    n: int = 64,
+    freq1: float = 5.0,
+    freq2: float = 14.0,
+    noise: float = 0.05,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 Hann-windowed one-sided Discrete Fourier Transform kernel
+    (`SpectralDftPower`) and verify against `numpy.fft.rfft`.
+    """
+    n = max(16, min(int(n), 256))
+    if n % 2 != 0:
+        n += 1
+    nyquist = max(2.0, float(n // 2 - 1))
+    freq1 = max(1.0, min(float(freq1), nyquist))
+    freq2 = max(1.0, min(float(freq2), nyquist))
+    noise = max(0.0, min(float(noise), 1.0))
+
+    idx = np.arange(n, dtype=np.float64)
+    two_pi = 2.0 * math.pi
+    sig = (
+        1.25 * np.sin(two_pi * freq1 * idx / float(n))
+        + 0.65 * np.cos(two_pi * freq2 * idx / float(n))
+        + noise * np.sin(two_pi * min(nyquist, 23.0) * idx / float(n))
+    )
+    sig_f = np.asfortranarray(sig, dtype=np.float64)
+
+    t0 = time.perf_counter()
+    power_out, peak_bin, peak_pow = fortnumerics.spectraldftpower(sig_f)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+
+    win = 0.5 * (1.0 - np.cos(two_pi * idx / float(max(1, n - 1))))
+    fft_ref = np.fft.rfft(sig_f * win)
+    ref_power = (np.abs(fft_ref) ** 2) / float(n)
+    max_err_vs_fft = float(np.max(np.abs(power_out - ref_power)))
+
+    sorted_bins = np.argsort(power_out)[::-1]
+    secondary_bin = int(sorted_bins[1]) if len(sorted_bins) > 1 else int(peak_bin)
+    secondary_pow = float(power_out[secondary_bin])
+    median_floor = max(1.0e-12, float(np.median(power_out)))
+    snr_db = round(10.0 * math.log10(max(1.0e-12, float(peak_pow)) / median_floor), 2)
+
+    return {
+        "n": n,
+        "n_bins": int(len(power_out)),
+        "freq1": round(freq1, 2),
+        "freq2": round(freq2, 2),
+        "noise": round(noise, 3),
+        "f_contiguous": bool(power_out.flags["F_CONTIGUOUS"]),
+        "peak_bin": int(peak_bin),
+        "peak_power": round(float(peak_pow), 6),
+        "secondary_bin": secondary_bin,
+        "secondary_power": round(secondary_pow, 6),
+        "snr_db": snr_db,
+        "max_err_vs_numpy_fft": float(f"{max_err_vs_fft:.3e}"),
+        "elapsed_ms": elapsed_ms,
+        "signal_samples": [round(float(v), 5) for v in sig_f],
+        "power_spectrum": [round(float(v), 5) for v in power_out],
+        "freq_bins": list(range(len(power_out))),
+    }
+
+
+def simulate_montecarlo_option(
+    n_paths: int = 20000,
+    s0: float = 100.0,
+    strike: float = 100.0,
+    rate: float = 0.05,
+    sigma: float = 0.25,
+    maturity: float = 1.0,
+    seed: int = 42,
+) -> Dict[str, Any]:
+    """
+    Execute the Fortran 2008 Box-Muller + Antithetic Variates Monte Carlo option pricing
+    kernel (`MonteCarloOptionDp`) and compare against closed-form `BlackScholesGrid`.
+    """
+    n_paths = max(500, min(int(n_paths), 200000))
+    s0 = max(10.0, min(float(s0), 1000.0))
+    strike = max(10.0, min(float(strike), 1000.0))
+    rate = max(0.0, min(float(rate), 0.30))
+    sigma = max(0.05, min(float(sigma), 1.5))
+    maturity = max(0.05, min(float(maturity), 10.0))
+    seed = max(1, min(int(seed), 999999))
+
+    t0 = time.perf_counter()
+    call_est, put_est, std_err, paths_sample = fortnumerics.montecarlooptiondp(
+        n_paths, s0, strike, rate, sigma, maturity, seed
+    )
+    elapsed_s = max(1.0e-7, time.perf_counter() - t0)
+
+    bs_call_arr, bs_put_arr, bs_delta_arr = fortnumerics.blackscholesgrid(
+        np.asfortranarray([s0], dtype=np.float64), strike, rate, sigma, maturity
+    )
+    bs_call = float(bs_call_arr[0])
+    bs_put = float(bs_put_arr[0])
+    bs_delta = float(bs_delta_arr[0])
+
+    call_abs_err = abs(float(call_est) - bs_call)
+    put_abs_err = abs(float(put_est) - bs_put)
+    ci_95_low = float(call_est) - 1.96 * float(std_err)
+    ci_95_high = float(call_est) + 1.96 * float(std_err)
+    mpaths_per_sec = round((n_paths / elapsed_s) / 1.0e6, 3)
+
+    return {
+        "n_paths": n_paths,
+        "s0": round(s0, 2),
+        "strike": round(strike, 2),
+        "rate": round(rate, 4),
+        "sigma": round(sigma, 4),
+        "maturity": round(maturity, 4),
+        "seed": seed,
+        "f_contiguous": bool(paths_sample.flags["F_CONTIGUOUS"]),
+        "mc_call": round(float(call_est), 6),
+        "mc_put": round(float(put_est), 6),
+        "std_error": round(float(std_err), 6),
+        "ci_95_low": round(ci_95_low, 6),
+        "ci_95_high": round(ci_95_high, 6),
+        "bs_exact_call": round(bs_call, 6),
+        "bs_exact_put": round(bs_put, 6),
+        "bs_exact_delta": round(bs_delta, 6),
+        "call_abs_error": round(call_abs_err, 6),
+        "put_abs_error": round(put_abs_err, 6),
+        "mpaths_per_sec": mpaths_per_sec,
+        "terminal_spots_sample": [round(float(v), 3) for v in paths_sample],
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -748,6 +874,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "eigen": "--eigen",
         "tridiag": "--tridiag",
         "blackscholes": "--blackscholes",
+        "spectral": "--spectral",
+        "montecarlo": "--montecarlo",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -781,10 +909,12 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     eig_res = simulate_eigen_3x3()
     tri_res = simulate_thomas_tridiag()
     bs_res = simulate_blackscholes_grid()
+    spec_res = simulate_spectral_dft()
+    mc_res = simulate_montecarlo_option(n_paths=10000)
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v5.0.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v6.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
@@ -793,6 +923,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         f"  Eigen3x3 : lambda_max = {eig_res['dominant_eigenvalue']:.6f}, ||Av-lv||_2 = {eig_res['residual_norm']:.2e}\n"
         f"  ThomasTri: x_mid = {tri_res['center_value']:.6f}, ||Tx-b||_inf = {tri_res['residual_inf']:.2e}\n"
         f"  BlackSch : ATM Call = {bs_res['atm_call']:.4f}, Put = {bs_res['atm_put']:.4f}, Delta = {bs_res['atm_delta']:.4f}\n"
+        f"  Spectral : Peak Bin k* = {spec_res['peak_bin']}, P(k*) = {spec_res['peak_power']:.4f}, SNR = {spec_res['snr_db']:.1f} dB\n"
+        f"  MonteCar : MC Call = {mc_res['mc_call']:.4f} ± {mc_res['std_error']:.4f} (BS Exact = {mc_res['bs_exact_call']:.4f})\n"
         "========================================================================"
     )
     return {
@@ -811,7 +943,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "5.0.0",
+        "version": "6.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -824,7 +956,10 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "eigen_3x3": simulate_eigen_3x3(),
         "thomas_tridiag": simulate_thomas_tridiag(),
         "blackscholes_grid": simulate_blackscholes_grid(),
+        "spectral_dft": simulate_spectral_dft(),
+        "montecarlo_option": simulate_montecarlo_option(n_paths=10000),
     }
+
 
 
 

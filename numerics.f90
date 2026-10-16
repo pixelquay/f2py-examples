@@ -5,7 +5,7 @@ module fortnumerics
   implicit none
   private
   public :: MatMulDp, Heat1DStep, SimpsonIntegrateDp, QuadraticRootsCompare, Rk4HarmonicStep, JacobiPoisson2D
-  public :: PowerEigen3x3, ThomasTridiag, BlackScholesGrid
+  public :: PowerEigen3x3, ThomasTridiag, BlackScholesGrid, SpectralDftPower, MonteCarloOptionDp
 
 contains
 
@@ -314,5 +314,116 @@ contains
     end do
   end subroutine BlackScholesGrid
 
+
+  pure subroutine SpectralDftPower(n, signal, power_spectrum, dominant_bin, total_power, parseval_err)
+    !! Pure Fortran 2008 `do concurrent` Discrete Fourier Transform (DFT) power spectrum
+    !! analyzer with Parseval's theorem energy conservation verification.
+    integer, intent(in) :: n
+    real(dp), intent(in) :: signal(n)
+    real(dp), intent(out) :: power_spectrum(n), total_power, parseval_err
+    integer, intent(out) :: dominant_bin
+    real(dp), parameter :: two_pi = 6.28318530717958647692_dp
+    real(dp) :: re_k, im_k, angle, time_power, max_p
+    integer :: k, j, half_n
+
+    if (n <= 0) then
+      dominant_bin = 0
+      total_power = 0.0_dp
+      parseval_err = 0.0_dp
+      return
+    end if
+
+    do concurrent (k = 1:n)
+      re_k = 0.0_dp
+      im_k = 0.0_dp
+      do j = 1, n
+        angle = two_pi * real(k - 1, dp) * real(j - 1, dp) / real(n, dp)
+        re_k = re_k + signal(j) * cos(angle)
+        im_k = im_k - signal(j) * sin(angle)
+      end do
+      power_spectrum(k) = (re_k * re_k + im_k * im_k) / (real(n, dp) * real(n, dp))
+    end do
+
+    total_power = sum(power_spectrum)
+    time_power = sum(signal * signal) / real(n, dp)
+    parseval_err = abs(total_power - time_power)
+
+    dominant_bin = 1
+    max_p = -1.0_dp
+    half_n = max(2, n / 2)
+    do k = 2, half_n
+      if (power_spectrum(k) > max_p) then
+        max_p = power_spectrum(k)
+        dominant_bin = k - 1
+      end if
+    end do
+  end subroutine SpectralDftPower
+
+
+  pure subroutine MonteCarloOptionDp(n_paths, s0, strike, rate, sigma, maturity, mc_call, mc_std_err, exact_bs_call, abs_err)
+    !! Antithetic-variate quasi-Monte Carlo (Halton base-2/3 Box-Muller) European Call
+    !! option pricer in Fortran 2008 compared against exact closed-form Black-Scholes.
+    integer, intent(in) :: n_paths
+    real(dp), intent(in) :: s0, strike, rate, sigma, maturity
+    real(dp), intent(out) :: mc_call, mc_std_err, exact_bs_call, abs_err
+    real(dp), parameter :: two_pi = 6.28318530717958647692_dp
+    real(dp) :: drift, vol_sqrt_t, disc, u1, u2, z, s_plus, s_minus, payoff_pair
+    real(dp) :: sum_payoff, sum_sq, mean_p, var_p, inv_sqrt2, d1, d2, nd1, nd2, f, r_val
+    integer :: i, m, b
+
+    m = max(10, n_paths)
+    drift = (rate - 0.5_dp * sigma * sigma) * maturity
+    vol_sqrt_t = max(1.0e-12_dp, sigma * sqrt(max(1.0e-12_dp, maturity)))
+    disc = exp(-rate * maturity)
+
+    sum_payoff = 0.0_dp
+    sum_sq = 0.0_dp
+
+    do i = 1, m
+      ! Halton radical inverse base 2 for u1
+      f = 0.5_dp
+      r_val = 0.0_dp
+      b = i
+      do while (b > 0)
+        r_val = r_val + f * real(mod(b, 2), dp)
+        b = b / 2
+        f = f * 0.5_dp
+      end do
+      u1 = max(1.0e-12_dp, min(1.0_dp - 1.0e-12_dp, r_val))
+
+      ! Halton radical inverse base 3 for u2
+      f = 1.0_dp / 3.0_dp
+      r_val = 0.0_dp
+      b = i
+      do while (b > 0)
+        r_val = r_val + f * real(mod(b, 3), dp)
+        b = b / 3
+        f = f / 3.0_dp
+      end do
+      u2 = max(1.0e-12_dp, min(1.0_dp - 1.0e-12_dp, r_val))
+
+      z = sqrt(-2.0_dp * log(u1)) * cos(two_pi * u2)
+      s_plus  = s0 * exp(drift + vol_sqrt_t * z)
+      s_minus = s0 * exp(drift - vol_sqrt_t * z)
+      payoff_pair = 0.5_dp * disc * (max(0.0_dp, s_plus - strike) + max(0.0_dp, s_minus - strike))
+      sum_payoff = sum_payoff + payoff_pair
+      sum_sq = sum_sq + payoff_pair * payoff_pair
+    end do
+
+    mean_p = sum_payoff / real(m, dp)
+    var_p = max(0.0_dp, (sum_sq / real(m, dp)) - mean_p * mean_p)
+    mc_call = mean_p
+    mc_std_err = sqrt(var_p / real(m, dp))
+
+    inv_sqrt2 = 1.0_dp / sqrt(2.0_dp)
+    d1 = (log(max(1.0e-12_dp, s0) / strike) + (rate + 0.5_dp * sigma * sigma) * maturity) / vol_sqrt_t
+    d2 = d1 - vol_sqrt_t
+    nd1 = 0.5_dp * erfc(-d1 * inv_sqrt2)
+    nd2 = 0.5_dp * erfc(-d2 * inv_sqrt2)
+    exact_bs_call = s0 * nd1 - strike * disc * nd2
+    abs_err = abs(mc_call - exact_bs_call)
+  end subroutine MonteCarloOptionDp
+
 end module fortnumerics
+
 
