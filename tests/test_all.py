@@ -10,6 +10,7 @@ from demof2py.auditor import (
     build_jupyter_notebook,
     build_markdown_pr_report,
     build_project_zip_bundle,
+    build_sarif_report,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -459,11 +460,11 @@ def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
         assert "fortnumerics/fortnumerics_pytorch_jax.py" in names
         assert "fortnumerics/bindings.rs" in names
         assert "fortnumerics/bindings.jl" in names
-        assert len(names) == 12
+        assert len(names) == 14
 
     # 4. Markdown PR Report & FastAPI v6.0.0 endpoints
     md_report = build_markdown_pr_report()
-    assert "# Fortran–Python `f2py` & C-ABI Readiness Report (`v6.0.0`)" in md_report
+    assert "# Fortran–Python `f2py` & C-ABI Readiness Report (`v7.0.0`)" in md_report
 
     client = TestClient(app)
     spec_resp = client.post(
@@ -486,7 +487,7 @@ def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
 
     md_resp = client.get("/api/v1/export/report.md")
     assert md_resp.status_code == 200
-    assert "v6.0.0" in md_resp.text
+    assert "v7.0.0" in md_resp.text
 
     native_spec = client.post("/api/v1/native-cli/run", json={"mode": "spectral"})
     assert native_spec.status_code == 200
@@ -499,5 +500,90 @@ def test_v6_polyglot_pytorch_spectral_montecarlo_and_markdown_export():
     assert cli_main(["spectral", "-n", "64", "--freq1", "5.0", "--freq2", "14.0"]) == 0
     assert cli_main(["montecarlo", "--paths", "10000", "--sigma", "0.25"]) == 0
     assert cli_main(["report-md"]) == 0
+
+
+def test_v7_autodiff_sparse_csr_fpm_wasm_and_sarif():
+    import io
+    import zipfile
+
+    # 1. AutoDiffRosenbrockDp kernel verification
+    h_steps = np.asfortranarray([10.0 ** (-k) for k in range(1, 16)], dtype=np.float64)
+    fd_fwd, fd_cen, gx, gy, f_val, opt_h = fortnumerics.autodiffrosenbrockdp(-1.2, 1.0, h_steps)
+    assert f_val == approx(24.2, rel=1e-12)
+    assert gx == approx(-215.6, rel=1e-12)
+    assert gy == approx(-88.0, rel=1e-12)
+    assert np.min(fd_cen) < 1e-7
+    assert fd_cen[-1] > 1e-3  # catastrophic cancellation at h=1e-15
+    assert 1e-8 <= opt_h <= 1e-4
+
+    # 2. CsrSpmvDp kernel verification
+    row_ptr = np.asfortranarray([1, 3, 6, 9, 11], dtype=np.int32)
+    col_idx = np.asfortranarray([1, 2, 1, 2, 3, 2, 3, 4, 3, 4], dtype=np.int32)
+    vals = np.asfortranarray([2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0, -1.0, -1.0, 2.0], dtype=np.float64)
+    x_vec = np.asfortranarray([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
+    y_sparse, max_err, comp_ratio = fortnumerics.csrspmvdp(row_ptr, col_idx, vals, x_vec)
+    assert max_err < 1e-14
+    assert np.allclose(y_sparse, [0.0, 0.0, 0.0, 5.0])
+    assert comp_ratio > 0.5
+
+    # 3. fpm.toml & WebAssembly Bridge Scaffolder + 14-file .zip bundle
+    presets = {p["filename"]: p for p in load_project_presets()}
+    scaf = generate_f2py_build_scaffold(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    assert "[fortran]" in scaf["fpm_toml"]
+    assert "export class FortranWasmBridge" in scaf["wasm_bridge_js"]
+    assert "Float64Array" in scaf["wasm_bridge_js"]
+
+    zip_bytes = build_project_zip_bundle(
+        presets["numerics.f90"]["code"],
+        filename="numerics.f90",
+        module_name="fortnumerics",
+    )
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        names = set(zf.namelist())
+        assert "fortnumerics/fpm.toml" in names
+        assert "fortnumerics/wasm_bridge.js" in names
+        assert len(names) == 14
+
+    # 4. SARIF 2.1.0 report & FastAPI v7.0.0 endpoints
+    sarif = build_sarif_report()
+    assert sarif["version"] == "2.1.0"
+    assert sarif["runs"][0]["tool"]["driver"]["version"] == "7.0.0"
+    assert len(sarif["runs"][0]["results"]) >= 1
+
+    client = TestClient(app)
+    ad_resp = client.post("/api/v1/sciml/autodiff", json={"x": -1.2, "y": 1.0})
+    assert ad_resp.status_code == 200
+    ad_data = ad_resp.json()
+    assert ad_data["exact_value"] == approx(24.2)
+    assert ad_data["dual_autodiff_error"] == 0.0
+    assert len(ad_data["log10_central_errors"]) == 15
+
+    csr_resp = client.post("/api/v1/linalg/sparse-csr", json={"n": 64, "bandwidth": 1})
+    assert csr_resp.status_code == 200
+    csr_data = csr_resp.json()
+    assert csr_data["nnz"] == 190
+    assert csr_data["compression_ratio"] > 10.0
+    assert csr_data["max_err_vs_dense"] < 1e-13
+
+    sarif_resp = client.get("/api/v1/export/report.sarif.json")
+    assert sarif_resp.status_code == 200
+    assert sarif_resp.json()["version"] == "2.1.0"
+
+    native_ad = client.post("/api/v1/native-cli/run", json={"mode": "autodiff"})
+    assert native_ad.status_code == 200
+    assert native_ad.json()["flag"] == "--autodiff"
+
+    native_csr = client.post("/api/v1/native-cli/run", json={"mode": "sparse"})
+    assert native_csr.status_code == 200
+    assert native_csr.json()["flag"] == "--sparse"
+
+    assert cli_main(["autodiff", "-x", "-1.2", "-y", "1.0"]) == 0
+    assert cli_main(["sparse-csr", "-n", "64", "--bandwidth", "1"]) == 0
+    assert cli_main(["report-sarif"]) == 0
+
 
 

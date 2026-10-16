@@ -809,7 +809,7 @@ def _generate_fpm_and_wasm_bridge(code: str, mod_name: str) -> Tuple[str, str]:
     zero-copy WebAssembly / Emscripten JavaScript (`wasm_bridge.js`) wrapper
     for `ISO_C_BINDING` (`bind(C)`) subroutines.
     """
-    routines = _parse_fortran_routines(code)
+    routines = _extract_routines_metadata(code)
     fpm_toml = (
         f"# Fortran Package Manager (fpm) manifest for `{mod_name}`\n"
         f"name = \"{mod_name}\"\n"
