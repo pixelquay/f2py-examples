@@ -12,6 +12,7 @@ import uvicorn
 
 from .auditor import (
     audit_fortran_source,
+    build_markdown_pr_report,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -24,8 +25,10 @@ from .benchmarks import (
     simulate_blackscholes_grid,
     simulate_eigen_3x3,
     simulate_heat_pde,
+    simulate_montecarlo_option,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_spectral_dft,
     simulate_thomas_tridiag,
 )
 from .kernels import compare_all_intents
@@ -110,6 +113,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     bs_p.add_argument("--sigma", type=float, default=0.25)
     bs_p.add_argument("--rate", type=float, default=0.05)
     bs_p.add_argument("--maturity", type=float, default=1.0)
+
+    spec_p = sub.add_parser("spectral", help="Run Hann-windowed Spectral DFT Power Spectrum (`SpectralDftPower`)")
+    spec_p.add_argument("-n", type=int, default=64)
+    spec_p.add_argument("--freq1", type=float, default=5.0)
+    spec_p.add_argument("--freq2", type=float, default=14.0)
+    spec_p.add_argument("--noise", type=float, default=0.05)
+
+    mc_p = sub.add_parser("montecarlo", help="Run Box-Muller Antithetic Monte Carlo Option Pricer (`MonteCarloOptionDp`)")
+    mc_p.add_argument("--paths", type=int, default=20000)
+    mc_p.add_argument("--s0", type=float, default=100.0)
+    mc_p.add_argument("--strike", type=float, default=100.0)
+    mc_p.add_argument("--rate", type=float, default=0.05)
+    mc_p.add_argument("--sigma", type=float, default=0.25)
+    mc_p.add_argument("--maturity", type=float, default=1.0)
+    mc_p.add_argument("--seed", type=int, default=42)
+
+    sub.add_parser("report-md", help="Generate publication-ready GitHub Flavored Markdown audit & benchmark report")
 
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
@@ -220,6 +240,41 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
 
+    if args.command == "spectral":
+        print(
+            json.dumps(
+                simulate_spectral_dft(
+                    n=args.n,
+                    freq1=args.freq1,
+                    freq2=args.freq2,
+                    noise=args.noise,
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "montecarlo":
+        print(
+            json.dumps(
+                simulate_montecarlo_option(
+                    n_paths=args.paths,
+                    s0=args.s0,
+                    strike=args.strike,
+                    rate=args.rate,
+                    sigma=args.sigma,
+                    maturity=args.maturity,
+                    seed=args.seed,
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "report-md":
+        print(build_markdown_pr_report())
+        return 0
+
     if args.command == "scaffold":
         presets = load_project_presets()
         chosen = next((p for p in presets if p["id"] == args.preset), presets[0])
@@ -262,3 +317,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

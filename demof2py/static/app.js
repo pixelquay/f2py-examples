@@ -1386,6 +1386,12 @@
       outEl.textContent = (lastScaffoldData.c_binding_f90 || "").trim();
     } else if (activeScaffoldTab === "ctypes") {
       outEl.textContent = (lastScaffoldData.ctypes_wrapper_py || "").trim();
+    } else if (activeScaffoldTab === "pytorch") {
+      outEl.textContent = (lastScaffoldData.pytorch_jax_py || "").trim();
+    } else if (activeScaffoldTab === "rust") {
+      outEl.textContent = (lastScaffoldData.rust_ffi_rs || "").trim();
+    } else if (activeScaffoldTab === "julia") {
+      outEl.textContent = (lastScaffoldData.julia_ccall_jl || "").trim();
     } else {
       outEl.textContent = (lastScaffoldData.meson_build || "").trim();
     }
@@ -1553,6 +1559,158 @@
       showToast("Exported f2py-scientific-workbench.ipynb");
     } catch (_err) {
       showToast("Failed to export Jupyter notebook");
+    }
+  }
+
+  // Phase 25 (v6.0.0): Spectral DFT Power Spectrum, Antithetic Monte Carlo Option Pricer & Markdown PR Exporter
+  let activeSpecPreset = "5_14";
+  let activeMcPaths = 20000;
+
+  async function runSpectralLab(notify = false) {
+    let freq1 = 5.0;
+    let freq2 = 14.0;
+    let noise = 0.05;
+    if (activeSpecPreset === "8_21") {
+      freq1 = 8.0;
+      freq2 = 21.0;
+      noise = 0.04;
+    } else if (activeSpecPreset === "3_19") {
+      freq1 = 3.0;
+      freq2 = 19.0;
+      noise = 0.25;
+    }
+
+    try {
+      const resp = await fetch("/api/v1/signal/spectral", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n: 64, freq1, freq2, noise }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderSpectralLab(data);
+      if (notify) {
+        showToast(`Evaluated SpectralDftPower (Peak Bin k*=${data.peak_bin}, SNR=${data.snr_db} dB)`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderSpectralLab(data) {
+    if (!data) return;
+    const subEl = document.getElementById("spectral-subtitle");
+    const badgeEl = document.getElementById("spectral-peak-badge");
+    const peakEl = document.getElementById("spectral-peak-val");
+    const errEl = document.getElementById("spectral-err-val");
+    const svgEl = document.getElementById("spectral-svg-chart");
+
+    if (subEl) {
+      subEl.textContent = `Hann-Windowed Dual-Tone Harmonics (k₁ = ${data.freq1}, k₂ = ${data.freq2}) • N = ${data.n}`;
+    }
+    if (badgeEl) {
+      badgeEl.textContent = `Peak Bin k* = ${data.peak_bin} • SNR = ${data.snr_db} dB`;
+    }
+    if (peakEl) {
+      peakEl.textContent = `Dominant Bin k* = ${data.peak_bin} (P = ${Number(data.peak_power).toFixed(2)}) • 2nd Bin k = ${data.secondary_bin}`;
+    }
+    if (errEl) {
+      errEl.textContent = `Max |P − rfft| = ${Number(data.max_err_vs_numpy_fft).toExponential(2)}`;
+    }
+    if (svgEl && Array.isArray(data.power_spectrum)) {
+      const w = 420;
+      const h = 140;
+      const padX = 16;
+      const padY = 16;
+      const arr = data.power_spectrum;
+      const n = arr.length;
+      const maxVal = Math.max(1.0e-6, ...arr);
+
+      const bars = arr
+        .map((val, idx) => {
+          const x = padX + (idx / Math.max(1, n - 1)) * (w - 2 * padX);
+          const barH = Math.max(2, (val / maxVal) * (h - 2 * padY));
+          const y = h - padY - barH;
+          const color = idx === data.peak_bin ? "var(--accent-primary)" : "var(--success-dot)";
+          return `<line x1="${x.toFixed(1)}" y1="${h - padY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="5" stroke-linecap="round" />`;
+        })
+        .join("");
+
+      svgEl.innerHTML = `
+        <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+        ${bars}
+      `;
+    }
+  }
+
+  async function runMonteCarloLab(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/quant/montecarlo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n_paths: activeMcPaths,
+          s0: 100.0,
+          strike: 100.0,
+          rate: 0.05,
+          sigma: 0.25,
+          maturity: 1.0,
+          seed: 42,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderMonteCarloLab(data);
+      if (notify) {
+        showToast(`Simulated ${data.n_paths.toLocaleString()} Antithetic Paths (Call=${data.mc_call})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderMonteCarloLab(data) {
+    if (!data) return;
+    const badgeEl = document.getElementById("mc-badge");
+    const callEl = document.getElementById("mc-call-val");
+    const ciEl = document.getElementById("mc-ci-val");
+    const errEl = document.getElementById("mc-err-val");
+    const tpEl = document.getElementById("mc-throughput-note");
+
+    if (badgeEl) {
+      badgeEl.textContent = `${Number(data.n_paths).toLocaleString()} Paths • Seed ${data.seed}`;
+    }
+    if (callEl) {
+      callEl.textContent = `Call = ${Number(data.mc_call).toFixed(4)} • Put = ${Number(data.mc_put).toFixed(4)} (BS Exact = ${Number(data.bs_exact_call).toFixed(4)})`;
+    }
+    if (ciEl) {
+      ciEl.textContent = `[${Number(data.ci_95_low).toFixed(4)}, ${Number(data.ci_95_high).toFixed(4)}] • SE = ${Number(data.std_error).toFixed(4)}`;
+    }
+    if (errEl) {
+      errEl.textContent = `Call |err| = ${Number(data.call_abs_error).toFixed(4)} • Put |err| = ${Number(data.put_abs_error).toFixed(4)}`;
+    }
+    if (tpEl) {
+      tpEl.textContent = `${data.mpaths_per_sec} Mpaths/s • Antithetic Variates`;
+    }
+  }
+
+  async function exportMarkdownReport() {
+    try {
+      const resp = await fetch("/api/v1/export/report.md");
+      if (!resp.ok) return;
+      const mdText = await resp.text();
+      const blob = new Blob([mdText], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "f2py-audit-benchmark-report.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Exported f2py-audit-benchmark-report.md");
+    } catch (_err) {
+      showToast("Failed to export Markdown report");
     }
   }
 
@@ -2049,6 +2207,7 @@
     // PDE Stencil, Benchmark Lab & Export Report Listeners (Phase 7)
     document.getElementById("export-report-btn")?.addEventListener("click", exportDiagnosticReport);
     document.getElementById("export-notebook-btn")?.addEventListener("click", exportJupyterNotebook);
+    document.getElementById("export-md-btn")?.addEventListener("click", exportMarkdownReport);
     document.getElementById("run-pde-btn")?.addEventListener("click", () => runPdeSimulation(true));
     document.getElementById("run-bench-btn")?.addEventListener("click", () => runLiveBenchmark(true));
 
@@ -2204,6 +2363,34 @@
         runBlackScholesLab(true);
       });
     });
+    document.getElementById("bs-run-btn")?.addEventListener("click", () => runBlackScholesLab(true));
+
+    // Phase 25 (v6.0.0): Spectral DFT & Monte Carlo controls
+    document.querySelectorAll("[data-spec-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeSpecPreset = btn.getAttribute("data-spec-preset") || "5_14";
+        document.querySelectorAll("[data-spec-preset]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runSpectralLab(true);
+      });
+    });
+    document.getElementById("spectral-run-btn")?.addEventListener("click", () => runSpectralLab(true));
+
+    document.querySelectorAll("[data-mc-paths]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeMcPaths = Number(btn.getAttribute("data-mc-paths") || 20000);
+        document.querySelectorAll("[data-mc-paths]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runMonteCarloLab(true);
+      });
+    });
+    document.getElementById("mc-run-btn")?.addEventListener("click", () => runMonteCarloLab(true));
 
     document.querySelectorAll("[data-scaffold-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -2269,6 +2456,8 @@
       runEigenExplorer(false),
       runTridiagExplorer(false),
       runBlackScholesLab(false),
+      runSpectralLab(false),
+      runMonteCarloLab(false),
     ]);
     await Promise.all([
       runGfortranVerify(false),
@@ -2282,4 +2471,5 @@
     init();
   }
 })();
+
 

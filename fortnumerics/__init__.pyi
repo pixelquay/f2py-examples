@@ -61,7 +61,22 @@ class _FortNumericsModule:
         sigma: float,
         maturity: float,
     ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]: ...
+    @staticmethod
+    def spectraldftpower(
+        sig: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], int, float]: ...
+    @staticmethod
+    def montecarlooptiondp(
+        n_paths: int,
+        s0: float,
+        strike: float,
+        rate: float,
+        sigma: float,
+        maturity: float,
+        seed: int = 42,
+    ) -> Tuple[float, float, float, NDArray[np.float64]]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]
+
 

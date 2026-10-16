@@ -23,6 +23,8 @@ from .benchmarks import (
     simulate_eigen_3x3,
     simulate_thomas_tridiag,
     simulate_blackscholes_grid,
+    simulate_spectral_dft,
+    simulate_montecarlo_option,
     run_native_fortran_cli,
     build_diagnostic_bundle,
 )
@@ -53,9 +55,12 @@ __all__ = [
     "simulate_eigen_3x3",
     "simulate_thomas_tridiag",
     "simulate_blackscholes_grid",
+    "simulate_spectral_dft",
+    "simulate_montecarlo_option",
     "run_native_fortran_cli",
     "build_diagnostic_bundle",
 ]
+
 
 
 
