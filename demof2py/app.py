@@ -23,6 +23,7 @@ from .auditor import (
     build_markdown_pr_report,
     build_project_zip_bundle,
     build_sarif_report,
+    compile_and_execute_custom_fortran,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -32,13 +33,16 @@ from .benchmarks import (
     build_diagnostic_bundle,
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
+    evaluate_roofline_profile,
     run_native_fortran_cli,
     run_performance_benchmark,
     simulate_autodiff_vcurve,
     simulate_blackscholes_grid,
+    simulate_crank_nicolson_1d,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_montecarlo_option,
+    simulate_newton_2d,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
     simulate_sparse_csr_spmv,
@@ -150,8 +154,8 @@ class QuadraticExploreRequest(BaseModel):
 class NativeCliRunRequest(BaseModel):
     mode: str = Field(
         default="all",
-        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes|spectral|montecarlo|autodiff|sparse)$",
-        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, blackscholes, spectral, montecarlo, autodiff, or sparse",
+        pattern="^(all|precision|intents|pde|linalg|ode|poisson|eigen|tridiag|blackscholes|spectral|montecarlo|autodiff|sparse|cranknicolson|newton)$",
+        description="Native Fortran 2008 CLI flag mode: all, precision, intents, pde, linalg, ode, poisson, eigen, tridiag, blackscholes, spectral, montecarlo, autodiff, sparse, cranknicolson, or newton",
     )
 
 
@@ -225,8 +229,30 @@ class SparseCsrExploreRequest(BaseModel):
     bandwidth: int = Field(default=1, ge=1, le=4, description="Half-bandwidth k (1=tridiagonal, 2=pentadiagonal)")
 
 
+class CrankNicolsonExploreRequest(BaseModel):
+    n: int = Field(default=41, ge=15, le=101, description="Spatial grid nodes N")
+    steps: int = Field(default=30, ge=1, le=200, description="Implicit Crank-Nicolson time steps")
+    alpha: float = Field(default=0.02, ge=0.001, le=0.10, description="Thermal diffusivity alpha")
+    dt: float = Field(default=0.04, ge=0.001, le=0.20, description="Time step size dt")
 
 
+class Newton2DExploreRequest(BaseModel):
+    x0: float = Field(default=1.2, ge=-3.0, le=3.0, description="Initial guess x0")
+    y0: float = Field(default=1.2, ge=-3.0, le=3.0, description="Initial guess y0")
+    r_circle: float = Field(default=1.0, ge=0.25, le=2.5, description="Circle radius R in x^2 + y^2 = R^2")
+    max_iters: int = Field(default=12, ge=4, le=25, description="Maximum Newton-Raphson iterations")
+
+
+class RooflineExploreRequest(BaseModel):
+    peak_gflops: float = Field(default=64.0, ge=8.0, le=512.0, description="Hardware peak double-precision GFLOP/s")
+    peak_bw_gbps: float = Field(default=32.0, ge=4.0, le=256.0, description="Hardware peak DRAM bandwidth GB/s")
+
+
+class LiveExecuteFortranRequest(BaseModel):
+    code: str = Field(..., min_length=1, description="Fortran source code to remediate, compile, and execute")
+    filename: str = Field(default="snippet.f90", description="Source filename")
+    x: float = Field(default=3.0, ge=-1e9, le=1e9, description="First scalar argument x")
+    y: float = Field(default=4.0, ge=-1e9, le=1e9, description="Second scalar argument y")
 
 
 @app.get("/api/v1/health")
@@ -483,6 +509,58 @@ def post_explore_sparse_csr(req: SparseCsrExploreRequest) -> Dict[str, Any]:
     return simulate_sparse_csr_spmv(
         n=req.n,
         bandwidth=req.bandwidth,
+    )
+
+
+@app.post("/api/v1/pde/crank-nicolson")
+def post_explore_crank_nicolson(req: CrankNicolsonExploreRequest) -> Dict[str, Any]:
+    """Execute the Unconditionally Stable 2nd-Order Implicit Crank-Nicolson 1D Heat PDE solver (`CrankNicolson1D`)."""
+    return simulate_crank_nicolson_1d(
+        n=req.n,
+        steps=req.steps,
+        alpha=req.alpha,
+        dt=req.dt,
+    )
+
+
+@app.post("/api/v1/nonlinear/newton")
+def post_explore_newton_2d(req: Newton2DExploreRequest) -> Dict[str, Any]:
+    """Execute the 2D Coupled Nonlinear System Newton-Raphson solver (`NewtonSystem2D`)."""
+    return simulate_newton_2d(
+        x0=req.x0,
+        y0=req.y0,
+        r_circle=req.r_circle,
+        max_iters=req.max_iters,
+    )
+
+
+@app.get("/api/v1/benchmarks/roofline")
+def get_explore_roofline(peak_gflops: float = 64.0, peak_bw_gbps: float = 32.0) -> Dict[str, Any]:
+    """Return the HPC Roofline Model & Arithmetic Intensity (FLOP/Byte) profile across Fortran 2008 kernels."""
+    return evaluate_roofline_profile(
+        peak_gflops=peak_gflops,
+        peak_bw_gbps=peak_bw_gbps,
+    )
+
+
+@app.post("/api/v1/benchmarks/roofline")
+def post_explore_roofline(req: RooflineExploreRequest) -> Dict[str, Any]:
+    """Evaluate the HPC Roofline Model with custom hardware peak GFLOP/s and memory bandwidth ceilings."""
+    return evaluate_roofline_profile(
+        peak_gflops=req.peak_gflops,
+        peak_bw_gbps=req.peak_bw_gbps,
+    )
+
+
+@app.post("/api/v1/auditor/execute")
+@app.post("/api/v1/diagnostics/execute")
+def post_execute_custom_fortran(req: LiveExecuteFortranRequest) -> Dict[str, Any]:
+    """Compile and execute custom Fortran source via an ISO_C_BINDING shared library (.dylib/.so) in a sandbox."""
+    return compile_and_execute_custom_fortran(
+        code=req.code,
+        filename=req.filename,
+        x_val=req.x,
+        y_val=req.y,
     )
 
 

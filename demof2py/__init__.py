@@ -29,6 +29,9 @@ from .benchmarks import (
     simulate_montecarlo_option,
     simulate_autodiff_vcurve,
     simulate_sparse_csr_spmv,
+    simulate_crank_nicolson_1d,
+    simulate_newton_2d,
+    evaluate_roofline_profile,
     run_native_fortran_cli,
     build_diagnostic_bundle,
 )
@@ -65,10 +68,9 @@ __all__ = [
     "simulate_montecarlo_option",
     "simulate_autodiff_vcurve",
     "simulate_sparse_csr_spmv",
+    "simulate_crank_nicolson_1d",
+    "simulate_newton_2d",
+    "evaluate_roofline_profile",
     "run_native_fortran_cli",
     "build_diagnostic_bundle",
 ]
-
-
-
-

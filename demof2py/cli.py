@@ -14,6 +14,7 @@ from .auditor import (
     audit_fortran_source,
     build_markdown_pr_report,
     build_sarif_report,
+    compile_and_execute_custom_fortran,
     generate_f2py_build_scaffold,
     load_project_presets,
     modernize_f77_to_f2008,
@@ -22,12 +23,15 @@ from .auditor import (
 from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
+    evaluate_roofline_profile,
     run_performance_benchmark,
     simulate_autodiff_vcurve,
     simulate_blackscholes_grid,
+    simulate_crank_nicolson_1d,
     simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_montecarlo_option,
+    simulate_newton_2d,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
     simulate_sparse_csr_spmv,
@@ -144,11 +148,32 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("report-sarif", help="Generate SARIF 2.1.0 static analysis report for GitHub Code Scanning")
 
+    cn_p = sub.add_parser("crank-nicolson", help="Run Unconditionally Stable Implicit Crank-Nicolson 1D Heat PDE (`CrankNicolson1D`)")
+    cn_p.add_argument("-n", type=int, default=41)
+    cn_p.add_argument("--steps", type=int, default=30)
+    cn_p.add_argument("--alpha", type=float, default=0.02)
+    cn_p.add_argument("--dt", type=float, default=0.04)
+
+    nwt_p = sub.add_parser("newton", help="Run 2D Coupled Nonlinear System Newton-Raphson Solver (`NewtonSystem2D`)")
+    nwt_p.add_argument("--x0", type=float, default=1.2)
+    nwt_p.add_argument("--y0", type=float, default=1.2)
+    nwt_p.add_argument("--radius", type=float, default=1.0)
+    nwt_p.add_argument("--max-iters", type=int, default=12)
+
+    roof_p = sub.add_parser("roofline", help="Evaluate HPC Roofline Model & Arithmetic Intensity (FLOP/Byte) across Fortran kernels")
+    roof_p.add_argument("--peak-gflops", type=float, default=64.0)
+    roof_p.add_argument("--peak-bw", type=float, default=32.0)
+
+    sbx_p = sub.add_parser("sandbox-run", help="Compile and execute a Fortran preset in the live native shared-library sandbox")
+    sbx_p.add_argument("--preset", default="badcomment_f", help="Preset ID to compile and execute (default: badcomment_f)")
+    sbx_p.add_argument("-x", type=float, default=3.0)
+    sbx_p.add_argument("-y", type=float, default=4.0)
+
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
     audit_p.add_argument("--compile-check", action="store_true", help="Run gfortran -fsyntax-only verification")
 
-    scaf_p = sub.add_parser("scaffold", help="Generate .pyf signature, .pyi stub, meson.build, and CMakeLists.txt")
+    scaf_p = sub.add_parser("scaffold", help="Generate .pyf signature, .pyi stub, meson.build, CMakeLists.txt, and pyproject.toml")
     scaf_p.add_argument("--preset", default="numerics_f90", help="Preset ID to scaffold (default: numerics_f90)")
 
     mod_p = sub.add_parser("modernize", help="Auto-modernize Fortran 77 (.f) to Fortran 2008 (.f90) + ISO_C_BINDING")
@@ -308,6 +333,52 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "report-sarif":
         print(json.dumps(build_sarif_report(), indent=2))
+        return 0
+
+    if args.command == "crank-nicolson":
+        print(
+            json.dumps(
+                simulate_crank_nicolson_1d(
+                    n=args.n, steps=args.steps, alpha=args.alpha, dt=args.dt
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "newton":
+        print(
+            json.dumps(
+                simulate_newton_2d(
+                    x0=args.x0, y0=args.y0, r_circle=args.radius, max_iters=args.max_iters
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "roofline":
+        print(
+            json.dumps(
+                evaluate_roofline_profile(
+                    peak_gflops=args.peak_gflops, peak_bw_gbps=args.peak_bw
+                ),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "sandbox-run":
+        presets = load_project_presets()
+        chosen = next((p for p in presets if p["id"] == args.preset), presets[0])
+        print(
+            json.dumps(
+                compile_and_execute_custom_fortran(
+                    chosen["code"], chosen["filename"], x_val=args.x, y_val=args.y
+                ),
+                indent=2,
+            )
+        )
         return 0
 
     if args.command == "scaffold":

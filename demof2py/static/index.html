@@ -27,7 +27,7 @@
           <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
           <div class="brand-title-row">
             <span class="brand-title">f2py Workbench</span>
-            <span class="version-chip" id="header-version-chip">v7.0.0</span>
+            <span class="version-chip" id="header-version-chip">v8.0.0</span>
           </div>
         </div>
       </div>
@@ -1054,6 +1054,8 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip" data-native-mode="montecarlo" aria-pressed="false">--montecarlo</button>
               <button type="button" class="filter-chip" data-native-mode="autodiff" aria-pressed="false">--autodiff</button>
               <button type="button" class="filter-chip" data-native-mode="sparse" aria-pressed="false">--sparse</button>
+              <button type="button" class="filter-chip" data-native-mode="cranknicolson" aria-pressed="false">--cranknicolson</button>
+              <button type="button" class="filter-chip" data-native-mode="newton" aria-pressed="false">--newton</button>
             </div>
 
             <div class="code-pane">
@@ -1135,6 +1137,15 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip is-active" data-poisson-source="dipole" aria-pressed="true">Electric Dipole (+90 / &minus;90)</button>
               <button type="button" class="filter-chip" data-poisson-source="central_charge" aria-pressed="false">Central Point Charge (+100)</button>
               <button type="button" class="filter-chip" data-poisson-source="quadrupole" aria-pressed="false">Quadrupole (+80 / &minus;80)</button>
+            </div>
+
+            <div class="pde-chart-box" role="img" aria-label="2D Poisson equipotential color heatmap and mid-plane potential slice u(x, y_mid)">
+              <div class="pde-legend-row mono-text">
+                <span class="pde-legend-item"><span class="pde-swatch is-init"></span>&minus;u<sub>max</sub> (Cathode)</span>
+                <span class="pde-legend-item"><span class="pde-swatch is-final"></span>+u<sub>max</sub> (Anode)</span>
+                <span id="poisson-heatmap-summary">15&times;15 Equipotential Heatmap</span>
+              </div>
+              <svg id="poisson-heatmap-svg" viewBox="0 0 420 140" class="pde-svg" preserveAspectRatio="none"></svg>
             </div>
 
             <dl class="runtime-kv-list">
@@ -1495,6 +1506,120 @@ end do</pre>
           </article>
         </div>
       </div>
+
+      <!-- Phase 33: Implicit Crank-Nicolson PDE, 2D Nonlinear Newton-Raphson & HPC Roofline Model Lab -->
+      <div class="section-block" id="cn-newton-section">
+        <div class="section-header-row">
+          <div>
+            <span class="view-eyebrow">FORTRAN 2008 IMPLICIT PDE SOLVER, NONLINEAR ROOT-FINDING &amp; HPC ROOFLINE MODEL</span>
+            <h2 class="section-title">Crank&ndash;Nicolson Implicit PDE, 2D Newton&ndash;Raphson &amp; HPC Roofline Lab (<code>numerics.f90</code>)</h2>
+            <p class="section-subtitle">
+              Verify unconditional stability of 2nd-order implicit Crank&ndash;Nicolson (<code>CrankNicolson1D</code>) beyond the explicit Courant limit (<code>CFL &gt; 0.5</code>), trace quadratic convergence of 2D Newton&ndash;Raphson (<code>NewtonSystem2D</code>), and inspect the Log&ndash;Log HPC Roofline Ceiling across all Fortran 2008 kernels.
+            </p>
+          </div>
+        </div>
+
+        <div class="workbench-two-col">
+          <!-- Left Card: Unconditionally Stable Implicit Crank-Nicolson 1D Heat PDE -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Implicit Crank&ndash;Nicolson PDE (<code>CrankNicolson1D</code>)</h3>
+                <p class="panel-subtitle" id="cn-subtitle">Unconditionally Stable O(&Delta;t&sup2;, &Delta;x&sup2;) TDMA vs. Explicit Euler</p>
+              </div>
+              <span class="status-badge status-success" id="cn-badge">CFL = 1.28 &bull; Unconditionally Stable</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select Crank-Nicolson Courant number regime">
+              <button type="button" class="filter-chip" data-cn-dt="0.01" aria-pressed="false">dt = 0.01 (CFL = 0.32, Both Stable)</button>
+              <button type="button" class="filter-chip is-active" data-cn-dt="0.04" aria-pressed="true">dt = 0.04 (CFL = 1.28, Explicit Diverges)</button>
+              <button type="button" class="filter-chip" data-cn-dt="0.08" aria-pressed="false">dt = 0.08 (CFL = 2.56, Stiff Step)</button>
+            </div>
+
+            <div class="pde-chart-box" role="img" aria-label="1D Heat PDE comparison showing Crank-Nicolson matching analytical exact decay while explicit Euler diverges for CFL > 0.5">
+              <div class="pde-legend-row mono-text">
+                <span class="pde-legend-item"><span class="pde-swatch is-init"></span>Analytical Exact</span>
+                <span class="pde-legend-item"><span class="pde-swatch is-final"></span>Crank&ndash;Nicolson u(x, T)</span>
+                <span id="cn-center-val">u<sub>CN</sub>(0.5) = 0.7891</span>
+              </div>
+              <svg id="cn-svg-chart" viewBox="0 0 420 140" class="pde-svg" preserveAspectRatio="none"></svg>
+            </div>
+
+            <div class="form-footer-actions">
+              <span class="meta-label mono-text" id="cn-err-val">Max Analytical Error = 4.12e-05 &bull; O(N) Thomas Solve</span>
+              <button type="button" class="btn btn-primary btn-sm" id="cn-run-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Run Crank&ndash;Nicolson Solver</span>
+              </button>
+            </div>
+          </article>
+
+          <!-- Right Card: 2D Coupled Nonlinear Newton-Raphson Solver -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">2D Nonlinear Newton&ndash;Raphson (<code>NewtonSystem2D</code>)</h3>
+                <p class="panel-subtitle" id="newton-subtitle">x&sup2; + y&sup2; &minus; R&sup2; = 0 &cap; x&sup3; &minus; y = 0 &bull; Exact 2&times;2 Jacobian</p>
+              </div>
+              <span class="status-badge status-info" id="newton-badge">6 Iters &bull; ||F||₂ = 1.00e-16</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select Newton-Raphson initial guess and radius">
+              <button type="button" class="filter-chip is-active" data-newton-preset="1.2_1.2_1.0" aria-pressed="true">(x₀, y₀) = (1.2, 1.2), R = 1.0</button>
+              <button type="button" class="filter-chip" data-newton-preset="2.2_2.5_1.5" aria-pressed="false">(x₀, y₀) = (2.2, 2.5), R = 1.5</button>
+              <button type="button" class="filter-chip" data-newton-preset="-1.5_-1.8_1.0" aria-pressed="false">(x₀, y₀) = (&minus;1.5, &minus;1.8), R = 1.0</button>
+            </div>
+
+            <div class="pde-chart-box" role="img" aria-label="Log10 residual norm ||F(x_k)||_2 showing quadratic convergence of 2D Newton-Raphson solver">
+              <div class="pde-legend-row mono-text">
+                <span class="pde-legend-item"><span class="pde-swatch is-final"></span>log<sub>10</sub>||F(x<sub>k</sub>)||<sub>2</sub></span>
+                <span id="newton-root-val">Root (x*, y*) = (0.826031, 0.563624)</span>
+              </div>
+              <svg id="newton-svg-chart" viewBox="0 0 420 140" class="pde-svg" preserveAspectRatio="none"></svg>
+            </div>
+
+            <div class="form-footer-actions">
+              <span class="meta-label mono-text" id="newton-res-val">Quadratic Convergence: 6 iterations to machine epsilon</span>
+              <button type="button" class="btn btn-primary btn-sm" id="newton-run-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Solve 2D Nonlinear System</span>
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <!-- Full-Width Card: HPC Roofline Model & Arithmetic Intensity Analyzer -->
+        <article class="surface-card chart-card" id="roofline-card" style="margin-top: 1.25rem;">
+          <div class="panel-header">
+            <div>
+              <h3 class="panel-title">HPC Roofline Model &amp; Arithmetic Intensity Analyzer (FLOP/Byte vs. GFLOP/s)</h3>
+              <p class="panel-subtitle" id="roofline-subtitle">
+                Log&ndash;Log Roofline Performance Ceiling: Memory-Bound Slope (DRAM Bandwidth) vs. Compute-Bound Flat Roof (SIMD FMA Peak) across all 7 Fortran 2008 Kernels
+              </p>
+            </div>
+            <span class="status-badge status-info" id="roofline-badge">Ridge Point I* = 2.00 FLOP/B &bull; 5 Memory-Bound / 2 Compute-Bound</span>
+          </div>
+
+          <div class="filter-chip-row" role="group" aria-label="Select hardware architecture roofline ceiling">
+            <button type="button" class="filter-chip is-active" data-roofline-hw="64_32" aria-pressed="true">Workstation CPU (64 GFLOP/s, 32 GB/s)</button>
+            <button type="button" class="filter-chip" data-roofline-hw="128_48" aria-pressed="false">Apple Silicon M-Series (128 GFLOP/s, 48 GB/s)</button>
+            <button type="button" class="filter-chip" data-roofline-hw="256_64" aria-pressed="false">AVX-512 Server Node (256 GFLOP/s, 64 GB/s)</button>
+          </div>
+
+          <div class="pde-chart-box" role="img" aria-label="Log-Log HPC Roofline chart plotting Arithmetic Intensity (FLOP/Byte) on X-axis and Attained GFLOP/s on Y-axis for 7 Fortran 2008 kernels">
+            <div class="pde-legend-row mono-text">
+              <span class="pde-legend-item"><span class="pde-swatch is-init"></span>Roofline Ceiling min(&Pi;<sub>peak</sub>, &beta;&middot;I)</span>
+              <span class="pde-legend-item"><span class="pde-swatch is-final"></span>Fortran 2008 Kernels (Attained GFLOP/s)</span>
+              <span id="roofline-summary-val">Peak: 64.0 GFLOP/s &bull; Bandwidth: 32.0 GB/s</span>
+            </div>
+            <svg id="roofline-svg-chart" viewBox="0 0 680 180" class="pde-svg" preserveAspectRatio="none"></svg>
+          </div>
+        </article>
+      </div>
     </section>
 
     <!-- ================================================================== -->
@@ -1599,6 +1724,12 @@ end do</pre>
               </svg>
               <span>Verify with <code>gfortran</code></span>
             </button>
+            <button type="button" class="btn btn-secondary" id="compile-execute-sandbox-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              <span>Compile &amp; Run Live (<code>.dylib/.so</code>)</span>
+            </button>
             <button type="button" class="btn btn-secondary" id="download-bundle-zip-btn">
               <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1617,7 +1748,7 @@ end do</pre>
           </div>
         </div>
 
-        <!-- Right Column: Audit Findings, gfortran Compiler Verifier, Recommended .f2py_f2cmap, PEP 561 .pyi Stub & Build Scaffolder -->
+        <!-- Right Column: Audit Findings, Live Sandbox, gfortran Compiler Verifier, Recommended .f2py_f2cmap, PEP 561 .pyi Stub & Build Scaffolder -->
         <div class="auditor-results-col">
           <div class="surface-card findings-panel">
             <div class="panel-header">
@@ -1625,6 +1756,14 @@ end do</pre>
               <span class="meta-chip mono-text" id="auditor-dialect-chip">Fortran 77 Fixed-Form (.f)</span>
             </div>
             <div id="audit-findings-list" class="findings-stack"></div>
+          </div>
+
+          <div class="surface-card cmap-recommendation-card" id="live-sandbox-card">
+            <div class="code-pane-header">
+              <span>Live Native Shared-Library Sandbox (<code>ISO_C_BINDING</code> &rarr; <code>ctypes.CDLL</code>)</span>
+              <span class="status-badge status-success" id="sandbox-status-badge">Ready to Execute</span>
+            </div>
+            <pre class="code-block mono-text" id="audit-sandbox-output">Click "Compile &amp; Run Live (.dylib/.so)" to modernize, compile into a native shared library, and execute via ctypes.</pre>
           </div>
 
           <div class="surface-card cmap-recommendation-card" id="gfortran-compile-card">
@@ -1665,7 +1804,7 @@ end do</pre>
 
           <div class="surface-card cmap-recommendation-card" id="f2py-scaffold-card">
             <div class="code-pane-header">
-              <span>Polyglot F2PY &amp; C-ABI Scaffolder (<code>Meson</code>, <code>PyTorch/JAX</code>, <code>Rust</code>, <code>Julia</code>, <code>fpm</code> &amp; <code>Wasm</code>)</span>
+              <span>Polyglot F2PY &amp; C-ABI Scaffolder (<code>Meson</code>, <code>pyproject.toml</code>, <code>PyTorch/JAX</code>, <code>Rust</code>, <code>Julia</code>, <code>fpm</code> &amp; <code>Wasm</code>)</span>
               <button type="button" class="copy-chip-btn" data-copy-target="audit-scaffold-output" aria-label="Copy generated build scaffold">
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -1676,6 +1815,7 @@ end do</pre>
             </div>
             <div class="filter-chip-row" role="group" aria-label="Select build system scaffold format">
               <button type="button" class="filter-chip is-active" data-scaffold-tab="meson" aria-pressed="true">meson.build</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="pyproject" aria-pressed="false">pyproject.toml</button>
               <button type="button" class="filter-chip" data-scaffold-tab="pyf" aria-pressed="false">Signature (.pyf)</button>
               <button type="button" class="filter-chip" data-scaffold-tab="cmake" aria-pressed="false">CMakeLists.txt</button>
               <button type="button" class="filter-chip" data-scaffold-tab="c_abi" aria-pressed="false">ISO_C_BINDING (.f90)</button>

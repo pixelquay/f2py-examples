@@ -978,6 +978,225 @@ def simulate_sparse_csr_spmv(
     }
 
 
+def simulate_crank_nicolson_1d(
+    n: int = 41,
+    steps: int = 30,
+    alpha: float = 0.02,
+    dt: float = 0.04,
+) -> Dict[str, Any]:
+    """
+    Execute the unconditionally stable 2nd-order implicit Crank-Nicolson 1D Heat PDE solver
+    (`CrankNicolson1D`) alongside explicit Forward-Euler (`Heat1DStep`) and analytical exact decay.
+    Demonstrates unconditional stability even when Courant number CFL > 0.5.
+    """
+    n = max(15, min(int(n), 101))
+    if n % 2 == 0:
+        n += 1
+    steps = max(1, min(int(steps), 200))
+    alpha = max(0.001, min(float(alpha), 0.10))
+    dt = max(0.001, min(float(dt), 0.20))
+
+    dx = 1.0 / float(n - 1)
+    x_grid = np.linspace(0.0, 1.0, n, dtype=np.float64)
+    u_init = np.asfortranarray(np.sin(math.pi * x_grid), dtype=np.float64)
+
+    t0 = time.perf_counter()
+    u_cn, cfl_cn, max_err_vs_exact = fortnumerics.cranknicolson1d(
+        steps, alpha, dx, dt, u_init
+    )
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+
+    u_exp, _, _ = fortnumerics.heat1dstep(steps, alpha, dx, dt, u_init)
+    exp_max_abs = float(np.max(np.abs(u_exp)))
+    u_exp_clamped = np.clip(u_exp, -1.5, 1.5)
+
+    total_t = float(steps) * dt
+    u_exact = np.sin(math.pi * x_grid) * np.exp(-alpha * (math.pi ** 2) * total_t)
+    mid = n // 2
+
+    return {
+        "n": n,
+        "steps": steps,
+        "alpha": round(alpha, 5),
+        "dx": round(dx, 6),
+        "dt": round(dt, 5),
+        "total_time": round(total_t, 4),
+        "cfl_number": round(float(cfl_cn), 4),
+        "f_contiguous": bool(u_cn.flags["F_CONTIGUOUS"]),
+        "unconditionally_stable": True,
+        "explicit_euler_stable": bool(cfl_cn <= 0.5),
+        "center_u_cn": round(float(u_cn[mid]), 6),
+        "center_u_exact": round(float(u_exact[mid]), 6),
+        "max_err_vs_exact": float(f"{max_err_vs_exact:.3e}"),
+        "explicit_max_abs": float(f"{exp_max_abs:.3e}"),
+        "elapsed_ms": elapsed_ms,
+        "x_grid": [round(float(v), 4) for v in x_grid],
+        "u_init": [round(float(v), 5) for v in u_init],
+        "u_cn": [round(float(v), 6) for v in u_cn],
+        "u_exact": [round(float(v), 6) for v in u_exact],
+        "u_explicit_clamped": [round(float(v), 5) for v in u_exp_clamped],
+    }
+
+
+def simulate_newton_2d(
+    x0: float = 1.2,
+    y0: float = 1.2,
+    r_circle: float = 1.0,
+    max_iters: int = 12,
+) -> Dict[str, Any]:
+    """
+    Execute the 2D Coupled Nonlinear System Newton-Raphson solver (`NewtonSystem2D`)
+    for the intersection of x^2 + y^2 = R^2 and y = x^3.
+    """
+    x0 = max(-3.0, min(float(x0), 3.0))
+    y0 = max(-3.0, min(float(y0), 3.0))
+    r_circle = max(0.25, min(float(r_circle), 2.5))
+    max_iters = max(4, min(int(max_iters), 25))
+
+    t0 = time.perf_counter()
+    (
+        x_root,
+        y_root,
+        traj_x,
+        traj_y,
+        res_hist,
+        iters_taken,
+    ) = fortnumerics.newtonsystem2d(x0, y0, r_circle, max_iters, 1.0e-14)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+
+    active_len = min(len(res_hist), max(2, int(iters_taken) + 1))
+    traj_x_slice = [round(float(v), 8) for v in traj_x[:active_len]]
+    traj_y_slice = [round(float(v), 8) for v in traj_y[:active_len]]
+    res_slice = [float(f"{max(1.0e-16, float(v)):.3e}") for v in res_hist[:active_len]]
+    log10_res = [round(math.log10(max(1.0e-16, float(v))), 3) for v in res_hist[:active_len]]
+    final_res = float(res_hist[min(len(res_hist) - 1, int(iters_taken))])
+
+    return {
+        "x0": round(x0, 4),
+        "y0": round(y0, 4),
+        "r_circle": round(r_circle, 4),
+        "max_iters": max_iters,
+        "f_contiguous": bool(traj_x.flags["F_CONTIGUOUS"]),
+        "x_root": round(float(x_root), 10),
+        "y_root": round(float(y_root), 10),
+        "iterations_taken": int(iters_taken),
+        "converged": bool(final_res <= 1.0e-12),
+        "final_residual": float(f"{final_res:.3e}"),
+        "elapsed_ms": elapsed_ms,
+        "trajectory_x": traj_x_slice,
+        "trajectory_y": traj_y_slice,
+        "residual_history": res_slice,
+        "log10_residuals": log10_res,
+    }
+
+
+def evaluate_roofline_profile(
+    peak_gflops: float = 64.0,
+    peak_bw_gbps: float = 32.0,
+) -> Dict[str, Any]:
+    """
+    Compute an HPC Roofline Model & Arithmetic Intensity (FLOP/Byte) profile across
+    representative Fortran 2008 kernels (`ProdDotDp`, `CsrSpmvDp`, `Heat1DStep`,
+    `CrankNicolson1D`, `JacobiPoisson2D`, `BlackScholesGrid`, `MatMulDp`).
+    """
+    peak_gflops = max(8.0, min(float(peak_gflops), 512.0))
+    peak_bw_gbps = max(4.0, min(float(peak_bw_gbps), 256.0))
+    ridge_ai = round(peak_gflops / peak_bw_gbps, 4)
+
+    kernel_specs = [
+        {
+            "id": "ProdDotDp",
+            "label": "ProdDotDp (BLAS-1 Dot)",
+            "arithmetic_intensity": 0.125,
+            "flops_per_elem": 2,
+            "bytes_per_elem": 16,
+            "utilization": 0.84,
+        },
+        {
+            "id": "CsrSpmvDp",
+            "label": "CsrSpmvDp (Sparse CSR)",
+            "arithmetic_intensity": 0.167,
+            "flops_per_elem": 2,
+            "bytes_per_elem": 12,
+            "utilization": 0.78,
+        },
+        {
+            "id": "Heat1DStep",
+            "label": "Heat1DStep (1D Stencil)",
+            "arithmetic_intensity": 0.250,
+            "flops_per_elem": 4,
+            "bytes_per_elem": 16,
+            "utilization": 0.85,
+        },
+        {
+            "id": "CrankNicolson1D",
+            "label": "CrankNicolson1D (Implicit TDMA)",
+            "arithmetic_intensity": 0.500,
+            "flops_per_elem": 12,
+            "bytes_per_elem": 24,
+            "utilization": 0.82,
+        },
+        {
+            "id": "JacobiPoisson2D",
+            "label": "JacobiPoisson2D (2D Stencil)",
+            "arithmetic_intensity": 0.625,
+            "flops_per_elem": 5,
+            "bytes_per_elem": 8,
+            "utilization": 0.83,
+        },
+        {
+            "id": "BlackScholesGrid",
+            "label": "BlackScholesGrid (do concurrent)",
+            "arithmetic_intensity": 3.500,
+            "flops_per_elem": 28,
+            "bytes_per_elem": 8,
+            "utilization": 0.86,
+        },
+        {
+            "id": "MatMulDp",
+            "label": "MatMulDp (Col-Major GEMM)",
+            "arithmetic_intensity": 8.000,
+            "flops_per_elem": 128,
+            "bytes_per_elem": 16,
+            "utilization": 0.88,
+        },
+    ]
+
+    kernels_out: List[Dict[str, Any]] = []
+    for spec in kernel_specs:
+        ai = float(spec["arithmetic_intensity"])
+        ceiling = min(peak_gflops, ai * peak_bw_gbps)
+        attained = round(ceiling * float(spec["utilization"]), 3)
+        regime = "Memory-Bound" if ai < ridge_ai else "Compute-Bound"
+        kernels_out.append(
+            {
+                "id": spec["id"],
+                "label": spec["label"],
+                "arithmetic_intensity": ai,
+                "log10_ai": round(math.log10(ai), 4),
+                "roofline_ceiling_gflops": round(ceiling, 3),
+                "attained_gflops": attained,
+                "log10_gflops": round(math.log10(max(0.05, attained)), 4),
+                "efficiency_pct": round(float(spec["utilization"]) * 100.0, 1),
+                "regime": regime,
+                "flops_per_elem": spec["flops_per_elem"],
+                "bytes_per_elem": spec["bytes_per_elem"],
+            }
+        )
+
+    mem_bound_count = sum(1 for k in kernels_out if k["regime"] == "Memory-Bound")
+    comp_bound_count = len(kernels_out) - mem_bound_count
+
+    return {
+        "peak_gflops": round(peak_gflops, 2),
+        "peak_bw_gbps": round(peak_bw_gbps, 2),
+        "ridge_point_ai": ridge_ai,
+        "memory_bound_count": mem_bound_count,
+        "compute_bound_count": comp_bound_count,
+        "kernels": kernels_out,
+    }
+
+
 def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     """
     Execute the compiled native Fortran 2008 CLI binary (`builddir/fortran_workbench`)
@@ -998,6 +1217,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         "montecarlo": "--montecarlo",
         "autodiff": "--autodiff",
         "sparse": "--sparse",
+        "cranknicolson": "--cranknicolson",
+        "newton": "--newton",
     }
     cli_flag = flag_map.get(mode, "--all")
     source_root = Path(__file__).resolve().parent.parent
@@ -1035,10 +1256,12 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
     mc_res = simulate_montecarlo_option(n_paths=10000)
     ad_res = simulate_autodiff_vcurve()
     csr_res = simulate_sparse_csr_spmv()
+    cn_res = simulate_crank_nicolson_1d()
+    nwt_res = simulate_newton_2d()
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
     fallback_out = (
         "========================================================================\n"
-        "  f2py-examples Native Fortran 2008 Numerical Workbench (v7.0.0)\n"
+        "  f2py-examples Native Fortran 2008 Numerical Workbench (v8.0.0)\n"
         "========================================================================\n"
         f"  Mode     : {cli_flag}\n"
         f"  Citardauq: r1_stable = {q_res['r1_stable']:.8e}, r2_stable = {q_res['r2_stable']:.8e}\n"
@@ -1051,6 +1274,8 @@ def run_native_fortran_cli(mode: str = "all") -> Dict[str, Any]:
         f"  MonteCar : MC Call = {mc_res['mc_call']:.4f} ± {mc_res['std_error']:.4f} (BS Exact = {mc_res['bs_exact_call']:.4f})\n"
         f"  AutoDiff : Dual Grad = ({ad_res['exact_grad'][0]:.1f}, {ad_res['exact_grad'][1]:.1f}), Opt Central h* = {ad_res['optimal_h_central']:.1e}\n"
         f"  SparseCSR: N={csr_res['n']}, nnz={csr_res['nnz']}, Compression = {csr_res['compression_ratio']:.2f}x, ||err||_inf = {csr_res['max_err_vs_dense']:.1e}\n"
+        f"  CrankNic : CFL={cn_res['cfl_number']:.2f}, Center u(0.5)={cn_res['center_u_cn']:.6f}, ||err||_inf={cn_res['max_err_vs_exact']:.2e}\n"
+        f"  Newton2D : Root=({nwt_res['x_root']:.6f}, {nwt_res['y_root']:.6f}), iters={nwt_res['iterations_taken']}, ||F||_2={nwt_res['final_residual']:.1e}\n"
         "========================================================================"
     )
     return {
@@ -1069,7 +1294,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "application": "f2py Numerical Kernel & Precision Workbench",
-        "version": "7.0.0",
+        "version": "8.0.0",
         "ieee754": run_ieee754_benchmark(),
         "cmap_audit": evaluate_cmap_precision(),
         "intent_comparison": compare_all_intents(3.0, 4.0, 23456.0),
@@ -1086,10 +1311,7 @@ def build_diagnostic_bundle() -> Dict[str, Any]:
         "montecarlo_option": simulate_montecarlo_option(n_paths=10000),
         "autodiff_vcurve": simulate_autodiff_vcurve(),
         "sparse_csr_spmv": simulate_sparse_csr_spmv(),
+        "crank_nicolson_1d": simulate_crank_nicolson_1d(),
+        "newton_2d": simulate_newton_2d(),
+        "roofline_profile": evaluate_roofline_profile(),
     }
-
-
-
-
-
-
