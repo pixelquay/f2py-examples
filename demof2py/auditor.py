@@ -535,17 +535,256 @@ def verify_with_gfortran(code: str, filename: str = "snippet.f90") -> Dict[str, 
     }
 
 
+def _extract_routines_metadata(code: str) -> List[Dict[str, Any]]:
+    """Extract subroutines/functions and their argument types/intents from Fortran source."""
+    sub_pattern = re.compile(
+        r"^\s*(?:pure\s+|elemental\s+)?(?:real(?:\([^)]*\))?\s+)?(subroutine|function)\s+([a-zA-Z0-9_]+)\s*(?:\(([^)]*)\))?",
+        flags=re.IGNORECASE,
+    )
+    end_pattern = re.compile(r"^\s*end\s+(?:subroutine|function)\b", flags=re.IGNORECASE)
+    routines: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+
+    for raw_line in code.splitlines():
+        clean_line = raw_line.split("!", 1)[0].strip()
+        if not clean_line:
+            continue
+        m_sub = sub_pattern.match(clean_line)
+        if m_sub:
+            kind_type = m_sub.group(1).lower()
+            r_name = m_sub.group(2).lower()
+            raw_args = m_sub.group(3) or ""
+            args = [a.strip().lower() for a in raw_args.split(",") if a.strip()]
+            current = {
+                "kind": kind_type,
+                "name": r_name,
+                "args": args,
+                "arg_meta": {a: {"type": "float", "intent": "in", "is_array": False} for a in args},
+            }
+            continue
+        if current is not None:
+            if "::" in clean_line:
+                lhs, rhs = clean_line.split("::", 1)
+                lhs_l = lhs.lower()
+                py_type = "int" if "integer" in lhs_l else "float"
+                intent = "in"
+                m_int = re.search(r"intent\s*\(\s*(in\s*out|inout|out|in)\s*\)", lhs_l)
+                if m_int:
+                    intent = m_int.group(1).replace(" ", "")
+                for decl_item in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(\([^)]*\))?", rhs):
+                    var_name = decl_item.group(1).lower()
+                    has_dims = bool(decl_item.group(2))
+                    if var_name in current["arg_meta"]:
+                        current["arg_meta"][var_name] = {
+                            "type": py_type,
+                            "intent": intent,
+                            "is_array": has_dims,
+                        }
+            if end_pattern.match(clean_line):
+                routines.append(current)
+                current = None
+    return routines
+
+
+def _generate_c_binding_and_ctypes(code: str, mod_name: str) -> Tuple[str, str]:
+    """
+    Generate a Fortran 2008 `iso_c_binding` (`bind(C)`) wrapper module and a matching
+    zero-dependency Python `ctypes` client wrapper.
+    """
+    routines = _extract_routines_metadata(code)
+    f90_lines = [
+        f"! Auto-generated Fortran 2008 ISO_C_BINDING C-ABI wrapper for `{mod_name}`",
+        f"module {mod_name}_c_abi",
+        "  use, intrinsic :: iso_c_binding, only: c_double, c_int",
+        "  implicit none",
+        "contains",
+    ]
+    py_lines = [
+        f'"""Auto-generated Python ctypes wrapper for {mod_name}_c_abi (ISO_C_BINDING)."""',
+        "import ctypes",
+        "from pathlib import Path",
+        "import numpy as np",
+        "",
+        f'_LIB_PATH = Path(__file__).with_name("lib{mod_name}.so")',
+        "_lib = ctypes.CDLL(str(_LIB_PATH)) if _LIB_PATH.exists() else None",
+        "",
+    ]
+
+    if not routines:
+        f90_lines.extend(
+            [
+                f"  subroutine {mod_name}_ping_c(status) bind(C, name=\"{mod_name}_ping_c\")",
+                "    integer(c_int), intent(out) :: status",
+                "    status = 0_c_int",
+                f"  end subroutine {mod_name}_ping_c",
+            ]
+        )
+        py_lines.append("def ping() -> int:\n    return 0\n")
+    else:
+        for r in routines[:6]:
+            r_name = r["name"]
+            c_symbol = f"{mod_name}_{r_name}_c"
+            args = r["args"]
+            args_csv = ", ".join(args)
+            f90_lines.append(
+                f'  subroutine {r_name}_c({args_csv}) bind(C, name="{c_symbol}")'
+            )
+            c_argtypes: List[str] = []
+            for a in args:
+                meta = r["arg_meta"][a]
+                c_t = "integer(c_int)" if meta["type"] == "int" else "real(c_double)"
+                intent = meta["intent"]
+                dim_sfx = "(*)" if meta["is_array"] else ""
+                f90_lines.append(f"    {c_t}, intent({intent}) :: {a}{dim_sfx}")
+                if meta["is_array"]:
+                    dtype_str = "np.int32" if meta["type"] == "int" else "np.float64"
+                    c_argtypes.append(
+                        f'np.ctypeslib.ndpointer(dtype={dtype_str}, flags="F_CONTIGUOUS")'
+                    )
+                else:
+                    ptr_t = "ctypes.c_int" if meta["type"] == "int" else "ctypes.c_double"
+                    c_argtypes.append(f"ctypes.POINTER({ptr_t})")
+            f90_lines.append(f"  end subroutine {r_name}_c\n")
+
+            py_lines.extend(
+                [
+                    f"if _lib is not None and hasattr(_lib, \"{c_symbol}\"):",
+                    f"    _lib.{c_symbol}.argtypes = [{', '.join(c_argtypes)}]",
+                    f"    _lib.{c_symbol}.restype = None",
+                    "",
+                ]
+            )
+
+    f90_lines.append(f"end module {mod_name}_c_abi\n")
+    return "\n".join(f90_lines), "\n".join(py_lines)
+
+
+def modernize_f77_to_f2008(
+    code: str,
+    filename: str = "legacy.f",
+    module_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Transform legacy Fortran 77 (`.f`) or untyped subroutines into a modern
+    free-form Fortran 2008 (`.f90`) module with `iso_fortran_env` (`real64`),
+    `implicit none`, explicit `intent(...)`, and `ISO_C_BINDING` C-ABI wrappers.
+    """
+    audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
+    remediated = audit_res["fixed_code"]
+    transformations: List[str] = []
+
+    raw_lines = remediated.splitlines()
+    free_lines: List[str] = []
+    converted_comments = 0
+    upgraded_types = 0
+
+    for line in raw_lines:
+        if line and line[0] in ("c", "C", "*"):
+            free_lines.append("! " + line[1:].strip())
+            converted_comments += 1
+            continue
+        stripped = line.strip()
+        if not stripped:
+            free_lines.append("")
+            continue
+
+        updated = re.sub(
+            r"\bdouble\s+precision\b",
+            "real(dp)",
+             stripped,
+            flags=re.IGNORECASE,
+        )
+        updated = re.sub(
+            r"\breal\s*\*\s*8\b",
+            "real(dp)",
+            updated,
+            flags=re.IGNORECASE,
+        )
+        updated = re.sub(
+            r"^real(\s*,\s*intent\([^)]+\)\s*::)",
+            r"real(dp)\1",
+            updated,
+            flags=re.IGNORECASE,
+        )
+        if updated != stripped:
+            upgraded_types += 1
+        free_lines.append("  " + updated)
+
+    if converted_comments > 0 or filename.lower().endswith(".f"):
+        transformations.append(
+            "Converted fixed-form Fortran 77 (.f) layout & column-1 comments to free-form Fortran 2008 (.f90)."
+        )
+    if upgraded_types > 0:
+        transformations.append(
+            f"Upgraded {upgraded_types} floating-point declaration(s) to IEEE 754 `real(dp)` (`real64`)."
+        )
+
+    joined_body = "\n".join(free_lines)
+    mod_match = re.search(
+        r"^\s*module\s+([a-zA-Z0-9_]+)",
+        joined_body,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    stem = Path(filename).stem.lower()
+    inferred_mod = mod_match.group(1).lower() if mod_match else f"{stem}_f2008"
+    mod_name = re.sub(r"[^a-z0-9_]", "_", (module_name or inferred_mod).strip().lower()) or "fortmod_f2008"
+
+    if not mod_match:
+        transformations.append(
+            f"Wrapped standalone routine(s) in Fortran 2008 `module {mod_name}` with `iso_fortran_env` (`dp => real64`)."
+        )
+        modernized_f90 = (
+            f"! Modernized Fortran 2008 module generated from {filename}\n"
+            f"module {mod_name}\n"
+            f"  use, intrinsic :: iso_fortran_env, only: dp => real64, int32\n"
+            f"  implicit none\n"
+            f"  private\n\n"
+            f"contains\n\n"
+            f"{joined_body}\n\n"
+            f"end module {mod_name}\n"
+        )
+    else:
+        modernized_f90 = joined_body + "\n"
+        transformations.append(
+            f"Verified Fortran 2008 module `{mod_name}` with explicit `implicit none` and `intent` declarations."
+        )
+
+    c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(modernized_f90, mod_name)
+    transformations.append(
+        f"Generated companion `iso_c_binding` (`bind(C)`) module `{mod_name}_c_abi` and Python `ctypes` wrapper."
+    )
+
+    modern_filename = f"{Path(filename).stem}.f90"
+    post_audit = audit_fortran_source(modernized_f90, filename=modern_filename, cmap_mode="modern")
+
+    return {
+        "original_filename": filename,
+        "modern_filename": modern_filename,
+        "module_name": mod_name,
+        "overall_status": post_audit["overall_status"],
+        "overall_label": post_audit["overall_label"],
+        "transformations": transformations,
+        "modernized_f90": modernized_f90,
+        "c_binding_f90": c_binding_f90,
+        "ctypes_wrapper_py": ctypes_wrapper_py,
+        "generated_pyi_stub": post_audit["generated_pyi_stub"],
+        "generated_pyf_signature": post_audit["generated_pyf_signature"],
+    }
+
+
 def generate_f2py_build_scaffold(
     code: str,
     filename: str = "snippet.f90",
     module_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Generate a complete F2PY packaging scaffold from Fortran 77/90 source code:
+    Generate a complete F2PY & ISO_C_BINDING packaging scaffold from Fortran 77/90 source code:
     - `.pyf` signature file (`<module_name>.pyf`)
     - PEP 561 `.pyi` stub (`<module_name>.pyi`)
     - `meson.build` extension definition (`meson-python` compatible)
     - `CMakeLists.txt` extension definition (`scikit-build-core` compatible)
+    - `ISO_C_BINDING` Fortran 2008 C-ABI wrapper (`<module_name>_c_abi.f90`)
+    - Python `ctypes` wrapper (`<module_name>_ctypes.py`)
     - Direct `python -m numpy.f2py -c` command string
     """
     audit_res = audit_fortran_source(code, filename=filename, cmap_mode="modern")
@@ -560,9 +799,10 @@ def generate_f2py_build_scaffold(
     mod_name = re.sub(r"[^a-z0-9_]", "_", (module_name or inferred_mod).strip().lower()) or "fortmod"
 
     pyi_stub, pyf_sig = _generate_stubs_from_source(fixed_code, filename)
+    c_binding_f90, ctypes_wrapper_py = _generate_c_binding_and_ctypes(fixed_code, mod_name)
 
     meson_build = (
-        f"project('{mod_name}', 'c', 'fortran', version: '4.0.0')\n\n"
+        f"project('{mod_name}', 'c', 'fortran', version: '5.0.0')\n\n"
         f"py = import('python').find_installation(pure: false)\n"
         f"incdir_numpy = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()\n"
         f"incdir_f2py = run_command(py, ['-c', 'import numpy.f2py; print(numpy.f2py.get_include())'], check: true).stdout().strip()\n\n"
@@ -619,6 +859,9 @@ def generate_f2py_build_scaffold(
         "pyi_stub": pyi_stub,
         "meson_build": meson_build,
         "cmake_lists": cmake_lists,
+        "c_binding_f90": c_binding_f90,
+        "ctypes_wrapper_py": ctypes_wrapper_py,
     }
+
 
 

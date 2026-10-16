@@ -7,6 +7,7 @@ from .auditor import (
     audit_fortran_source,
     generate_f2py_build_scaffold,
     load_project_presets,
+    modernize_f77_to_f2008,
     verify_with_gfortran,
 )
 from .benchmarks import (
@@ -22,7 +23,7 @@ from .benchmarks import (
     build_diagnostic_bundle,
 )
 
-__version__ = "4.0.0"
+__version__ = "5.0.0"
 
 __all__ = [
     "__version__",
@@ -34,6 +35,7 @@ __all__ = [
     "audit_fortran_source",
     "generate_f2py_build_scaffold",
     "load_project_presets",
+    "modernize_f77_to_f2008",
     "verify_with_gfortran",
     "run_performance_benchmark",
     "simulate_heat_pde",

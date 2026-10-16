@@ -21,6 +21,7 @@ from .auditor import (
     audit_fortran_source,
     generate_f2py_build_scaffold,
     load_project_presets,
+    modernize_f77_to_f2008,
     verify_with_gfortran,
 )
 from .benchmarks import (
@@ -419,8 +420,17 @@ def post_compile_check_fortran(req: AuditRequest) -> Dict[str, Any]:
 
 @app.post("/api/v1/diagnostics/scaffold")
 def post_scaffold_fortran(req: AuditRequest) -> Dict[str, Any]:
-    """Generate .pyf signature, PEP 561 .pyi stub, meson.build, and CMakeLists.txt packaging scaffolds."""
+    """Generate .pyf signature, PEP 561 .pyi stub, meson.build, CMakeLists.txt, and ISO_C_BINDING scaffolds."""
     return generate_f2py_build_scaffold(
+        code=req.code,
+        filename=req.filename,
+    )
+
+
+@app.post("/api/v1/diagnostics/modernize")
+def post_modernize_fortran(req: AuditRequest) -> Dict[str, Any]:
+    """Auto-modernize legacy Fortran 77 (.f) or untyped routines into Fortran 2008 + ISO_C_BINDING."""
+    return modernize_f77_to_f2008(
         code=req.code,
         filename=req.filename,
     )
