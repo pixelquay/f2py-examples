@@ -413,6 +413,113 @@ class _FortNumericsModule:
         std_err = float(disc * math.sqrt(var_c / float(n_pairs)))
         return call_est, put_est, std_err, paths_sample
 
+    @staticmethod
+    def autodiffrosenbrockdp(
+        x: float,
+        y: float,
+        h_steps: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        float,
+        float,
+        float,
+        float,
+    ]:
+        """
+        Subroutine AutoDiffRosenbrockDp(x, y, n_steps, h_steps, fd_err_forward,
+                                        fd_err_central, exact_grad_x, exact_grad_y,
+                                        exact_val, optimal_h_central)
+        Forward-mode Dual-Number / Tangent Automatic Differentiation vs Finite-Difference
+        truncation/cancellation V-curve on the 2D Rosenbrock function.
+        """
+        x_f = float(x)
+        y_f = float(y)
+        h_arr = np.asarray(h_steps, dtype=np.float64, order="F").ravel()
+        n_steps = int(h_arr.shape[0])
+
+        exact_val = (1.0 - x_f) ** 2 + 100.0 * (y_f - x_f * x_f) ** 2
+        exact_grad_x = -2.0 * (1.0 - x_f) - 400.0 * x_f * (y_f - x_f * x_f)
+        exact_grad_y = 200.0 * (y_f - x_f * x_f)
+
+        fd_err_forward = np.zeros(n_steps, dtype=np.float64, order="F")
+        fd_err_central = np.zeros(n_steps, dtype=np.float64, order="F")
+
+        min_err = float("inf")
+        optimal_h_central = 1.0e-5
+
+        for i in range(n_steps):
+            h = max(1.0e-16, float(h_arr[i]))
+            fx_p = (1.0 - (x_f + h)) ** 2 + 100.0 * (y_f - (x_f + h) ** 2) ** 2
+            fx_m = (1.0 - (x_f - h)) ** 2 + 100.0 * (y_f - (x_f - h) ** 2) ** 2
+            fy_p = (1.0 - x_f) ** 2 + 100.0 * ((y_f + h) - x_f * x_f) ** 2
+            fy_m = (1.0 - x_f) ** 2 + 100.0 * ((y_f - h) - x_f * x_f) ** 2
+
+            fwd_gx = (fx_p - exact_val) / h
+            fwd_gy = (fy_p - exact_val) / h
+            cen_gx = (fx_p - fx_m) / (2.0 * h)
+            cen_gy = (fy_p - fy_m) / (2.0 * h)
+
+            err_f = max(1.0e-16, math.hypot(fwd_gx - exact_grad_x, fwd_gy - exact_grad_y))
+            err_c = max(1.0e-16, math.hypot(cen_gx - exact_grad_x, cen_gy - exact_grad_y))
+            fd_err_forward[i] = err_f
+            fd_err_central[i] = err_c
+
+            if err_c < min_err:
+                min_err = err_c
+                optimal_h_central = h
+
+        return (
+            fd_err_forward,
+            fd_err_central,
+            float(exact_grad_x),
+            float(exact_grad_y),
+            float(exact_val),
+            float(optimal_h_central),
+        )
+
+    @staticmethod
+    def csrspmvdp(
+        row_ptr: Union[Sequence[int], NDArray[np.integer]],
+        col_idx: Union[Sequence[int], NDArray[np.integer]],
+        vals: Union[Sequence[float], NDArray[np.floating]],
+        x: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float, float]:
+        """
+        Subroutine CsrSpmvDp(n, nnz, row_ptr, col_idx, vals, x, y_sparse, max_err_vs_dense, compression_ratio)
+        O(nnz) Compressed Sparse Row (CSR, 1-based Fortran indexing) sparse matrix-vector
+        multiplication y = A_csr * x.
+        """
+        rp = np.asarray(row_ptr, dtype=np.int32).ravel()
+        ci = np.asarray(col_idx, dtype=np.int32).ravel()
+        v = np.asarray(vals, dtype=np.float64, order="F").ravel()
+        x_arr = np.asarray(x, dtype=np.float64, order="F").ravel()
+
+        n = int(x_arr.shape[0])
+        nnz = int(v.shape[0])
+        if rp.shape[0] != n + 1:
+            raise ValueError(f"CSR row_ptr length ({rp.shape[0]}) must equal n + 1 ({n + 1}).")
+
+        y_sparse = np.zeros(n, dtype=np.float64, order="F")
+        dense = np.zeros((n, n), dtype=np.float64, order="F")
+        for i in range(n):
+            acc = 0.0
+            start_k = int(rp[i]) - 1
+            end_k = int(rp[i + 1]) - 1
+            for k in range(start_k, end_k):
+                c_idx = int(ci[k]) - 1
+                if 0 <= c_idx < n:
+                    acc += float(v[k]) * float(x_arr[c_idx])
+                    dense[i, c_idx] += float(v[k])
+            y_sparse[i] = acc
+
+        y_dense = dense @ x_arr
+        max_err = float(np.max(np.abs(y_sparse - y_dense))) if n > 0 else 0.0
+        dense_bytes = float(n * n * 8)
+        csr_bytes = float(nnz * 8 + (nnz + n + 1) * 4)
+        compression_ratio = dense_bytes / max(1.0, csr_bytes)
+        return y_sparse, max_err, float(compression_ratio)
+
 
 fortnumerics = _FortNumericsModule()
 

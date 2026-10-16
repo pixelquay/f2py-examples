@@ -75,6 +75,26 @@ class _FortNumericsModule:
         maturity: float,
         seed: int = 42,
     ) -> Tuple[float, float, float, NDArray[np.float64]]: ...
+    @staticmethod
+    def autodiffrosenbrockdp(
+        x: float,
+        y: float,
+        h_steps: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        float,
+        float,
+        float,
+        float,
+    ]: ...
+    @staticmethod
+    def csrspmvdp(
+        row_ptr: Union[Sequence[int], NDArray[np.integer]],
+        col_idx: Union[Sequence[int], NDArray[np.integer]],
+        vals: Union[Sequence[float], NDArray[np.floating]],
+        x: Union[Sequence[float], NDArray[np.floating]],
+    ) -> Tuple[NDArray[np.float64], float, float]: ...
 
 fortnumerics: _FortNumericsModule
 __all__: list[str]
