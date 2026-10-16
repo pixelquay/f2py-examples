@@ -20,9 +20,11 @@ from .benchmarks import (
     evaluate_matrix_and_quadrature,
     evaluate_quadratic_cancellation,
     run_performance_benchmark,
+    simulate_eigen_3x3,
     simulate_heat_pde,
     simulate_poisson_2d,
     simulate_rk4_oscillator,
+    simulate_thomas_tridiag,
 )
 from .kernels import compare_all_intents
 from .precision import run_ieee754_benchmark
@@ -83,6 +85,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     pois_p.add_argument("-n", type=int, default=15)
     pois_p.add_argument("--iterations", type=int, default=80)
     pois_p.add_argument("--source", choices=["dipole", "central_charge", "quadrupole"], default="dipole")
+
+    eig_p = sub.add_parser("eigen", help="Run 3x3 Rayleigh-quotient dominant eigenpair (`PowerEigen3x3`)")
+    eig_p.add_argument(
+        "--preset",
+        choices=["spd_stiffness", "coupled_oscillator", "hilbert_3x3"],
+        default="spd_stiffness",
+    )
+    eig_p.add_argument("--iterations", type=int, default=30)
+
+    tri_p = sub.add_parser("tridiag", help="Run O(N) Thomas tridiagonal linear solver (`ThomasTridiag`)")
+    tri_p.add_argument("-n", type=int, default=21)
+    tri_p.add_argument(
+        "--bc",
+        choices=["catenary", "helmholtz_screened", "boundary_drive"],
+        default="catenary",
+    )
 
     audit_p = sub.add_parser("audit", help="Audit all repository Fortran files for f2py pitfalls")
     audit_p.add_argument("--cmap", choices=["modern", "legacy"], default="modern")
@@ -152,6 +170,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             json.dumps(
                 simulate_poisson_2d(n=args.n, iterations=args.iterations, source_type=args.source),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "eigen":
+        print(
+            json.dumps(
+                simulate_eigen_3x3(preset=args.preset, iterations=args.iterations),
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "tridiag":
+        print(
+            json.dumps(
+                simulate_thomas_tridiag(n=args.n, bc_type=args.bc),
                 indent=2,
             )
         )

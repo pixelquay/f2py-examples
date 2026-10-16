@@ -685,6 +685,7 @@
       const res = await resp.json();
       state.lastFixedCode = res.fixed_code || code;
       renderAuditFindings(res);
+      runScaffoldGenerator(false);
       if (showNotification) {
         showToast(`Audit completed: ${res.overall_label}`);
       }
@@ -1247,6 +1248,145 @@
       // ignore
     }
   }
+
+  // Phase 17: Spectral Dominant Eigenpair, O(N) Thomas Tridiagonal & F2PY Packaging Scaffolder
+  let activeEigenPreset = "spd_stiffness";
+  let activeTridiagBc = "catenary";
+  let activeScaffoldTab = "meson";
+  let lastScaffoldData = null;
+
+  async function runEigenExplorer(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/linalg/eigen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preset: activeEigenPreset,
+          iterations: 35,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderEigenExplorer(data);
+      if (notify) {
+        showToast(`Computed Dominant Eigenpair (${data.preset_label})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderEigenExplorer(data) {
+    if (!data) return;
+    const subEl = document.getElementById("eigen-subtitle");
+    const badgeEl = document.getElementById("eigen-res-badge");
+    const valEl = document.getElementById("eigen-val-display");
+    const lapEl = document.getElementById("eigen-lapack-display");
+    const vecEl = document.getElementById("eigen-vec-display");
+
+    if (subEl) subEl.textContent = data.preset_label || "";
+    if (badgeEl) {
+      badgeEl.textContent = `||Av − λv||₂ = ${Number(data.residual_norm).toExponential(2)}`;
+    }
+    if (valEl) {
+      valEl.textContent = Number(data.dominant_eigenvalue).toFixed(10);
+    }
+    if (lapEl) {
+      lapEl.textContent = `${Number(data.lapack_reference).toFixed(10)} (err: ${Number(data.abs_error_vs_lapack).toExponential(2)})`;
+    }
+    if (vecEl && Array.isArray(data.eigenvector)) {
+      vecEl.textContent = `[ ${data.eigenvector.map((v) => Number(v).toFixed(6)).join(", ")} ]`;
+    }
+  }
+
+  async function runTridiagExplorer(notify = false) {
+    try {
+      const resp = await fetch("/api/v1/linalg/tridiag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          n: 21,
+          bc_type: activeTridiagBc,
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderTridiagExplorer(data);
+      if (notify) {
+        showToast(`Solved O(N) Thomas Tridiagonal (${data.bc_label})`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderTridiagExplorer(data) {
+    if (!data) return;
+    const subEl = document.getElementById("tridiag-subtitle");
+    const badgeEl = document.getElementById("tridiag-res-badge");
+    const midEl = document.getElementById("tridiag-mid-val");
+    const errEl = document.getElementById("tridiag-err-val");
+    const bcLabel = document.getElementById("tridiag-bc-label");
+    const preEl = document.getElementById("tridiag-preview-pre");
+
+    if (subEl) subEl.textContent = data.bc_label || "";
+    if (badgeEl) {
+      badgeEl.textContent = `||Tx − b||∞ = ${Number(data.residual_inf).toExponential(2)}`;
+    }
+    if (midEl) {
+      midEl.textContent = `x(mid) = ${Number(data.center_value).toFixed(6)} • max|x| = ${Number(data.max_value).toFixed(6)}`;
+    }
+    if (errEl) {
+      errEl.textContent = `${Number(data.max_err_vs_dense).toExponential(2)} (${data.complexity})`;
+    }
+    if (bcLabel) {
+      bcLabel.textContent = `${data.n}×${data.n} Tridiagonal TDMA`;
+    }
+    if (preEl && Array.isArray(data.solution_preview)) {
+      preEl.textContent = `[ ${data.solution_preview.map((v) => Number(v).toFixed(5)).join(", ")} ]`;
+    }
+  }
+
+  async function runScaffoldGenerator(notify = false) {
+    const code = document.getElementById("audit-code-textarea")?.value || "";
+    const filename = document.getElementById("audit-filename-input")?.value || "snippet.f90";
+    if (!code.trim()) return;
+
+    try {
+      const resp = await fetch("/api/v1/diagnostics/scaffold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          filename,
+          cmap_mode: state.cmapMode || "modern",
+        }),
+      });
+      if (!resp.ok) return;
+      lastScaffoldData = await resp.json();
+      renderScaffoldOutput();
+      if (notify) {
+        showToast(`Generated ${activeScaffoldTab} scaffold for ${filename}`);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }
+
+  function renderScaffoldOutput() {
+    if (!lastScaffoldData) return;
+    const outEl = document.getElementById("audit-scaffold-output");
+    if (!outEl) return;
+
+    if (activeScaffoldTab === "pyf") {
+      outEl.textContent = (lastScaffoldData.pyf_signature || "").trim();
+    } else if (activeScaffoldTab === "cmake") {
+      outEl.textContent = (lastScaffoldData.cmake_lists || "").trim();
+    } else {
+      outEl.textContent = (lastScaffoldData.meson_build || "").trim();
+    }
+  }
+
 
 
 
@@ -1859,6 +1999,47 @@
 
     document.getElementById("verify-gfortran-btn")?.addEventListener("click", () => runGfortranVerify(true));
 
+    // Phase 17: Eigenpair, Thomas Tridiagonal & Build Scaffolder controls
+    document.querySelectorAll("[data-eigen-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeEigenPreset = btn.getAttribute("data-eigen-preset") || "spd_stiffness";
+        document.querySelectorAll("[data-eigen-preset]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runEigenExplorer(true);
+      });
+    });
+
+    document.querySelectorAll("[data-tridiag-bc]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeTridiagBc = btn.getAttribute("data-tridiag-bc") || "catenary";
+        document.querySelectorAll("[data-tridiag-bc]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        runTridiagExplorer(true);
+      });
+    });
+
+    document.querySelectorAll("[data-scaffold-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeScaffoldTab = btn.getAttribute("data-scaffold-tab") || "meson";
+        document.querySelectorAll("[data-scaffold-tab]").forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle("is-active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        if (lastScaffoldData) {
+          renderScaffoldOutput();
+        } else {
+          runScaffoldGenerator(true);
+        }
+      });
+    });
+
     // Load initial API state
     try {
       const [healthResp, kernelsResp, compResp] = await Promise.all([
@@ -1904,8 +2085,13 @@
       runNativeFortranCli(false),
       runRk4Explorer(false),
       runPoisson2DExplorer(false),
+      runEigenExplorer(false),
+      runTridiagExplorer(false),
     ]);
-    await runGfortranVerify(false);
+    await Promise.all([
+      runGfortranVerify(false),
+      runScaffoldGenerator(false),
+    ]);
   }
 
   if (document.readyState === "loading") {

@@ -27,7 +27,7 @@
           <span class="brand-caption">SCIVISION NUMERICAL BRIDGE</span>
           <div class="brand-title-row">
             <span class="brand-title">f2py Workbench</span>
-            <span class="version-chip" id="header-version-chip">v3.0.0</span>
+            <span class="version-chip" id="header-version-chip">v4.0.0</span>
           </div>
         </div>
       </div>
@@ -1024,6 +1024,8 @@ assert z == 6.0  # isinstance(z, float)</pre>
               <button type="button" class="filter-chip" data-native-mode="pde" aria-pressed="false">--pde</button>
               <button type="button" class="filter-chip" data-native-mode="ode" aria-pressed="false">--ode</button>
               <button type="button" class="filter-chip" data-native-mode="poisson" aria-pressed="false">--poisson</button>
+              <button type="button" class="filter-chip" data-native-mode="eigen" aria-pressed="false">--eigen</button>
+              <button type="button" class="filter-chip" data-native-mode="tridiag" aria-pressed="false">--tridiag</button>
             </div>
 
             <div class="code-pane">
@@ -1124,6 +1126,88 @@ assert z == 6.0  # isinstance(z, float)</pre>
                 <span class="mono-text" id="poisson-source-label">Electric Dipole Pair (+90 / −90)</span>
               </div>
               <pre class="code-block mono-text" id="poisson-slice-pre">[ 0.0000, +0.0412, +0.1489, +0.0521, 0.0000, -0.0521, -0.1489, -0.0412, 0.0000 ]</pre>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <!-- Phase 17: Spectral Dominant Eigenpair (PowerEigen3x3) & O(N) Thomas Tridiagonal (ThomasTridiag) Lab -->
+      <div class="section-block" id="eigen-tridiag-section">
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Spectral Dominant Eigenpair &amp; O(N) Thomas Tridiagonal Lab (<code>numerics.f90</code>)</h2>
+            <p class="section-subtitle">
+              Compute dominant eigenvalues via Rayleigh-quotient power iteration (<code>PowerEigen3x3</code>) and solve tridiagonal boundary-value systems in O(N) time (<code>ThomasTridiag</code>).
+            </p>
+          </div>
+        </div>
+
+        <div class="workbench-two-col">
+          <!-- Left Card: Rayleigh-Quotient Dominant Eigenpair -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Dominant Eigenpair (<code>PowerEigen3x3</code>)</h3>
+                <p class="panel-subtitle" id="eigen-subtitle">3&times;3 SPD Discrete Laplacian Stiffness Matrix</p>
+              </div>
+              <span class="status-badge status-success" id="eigen-res-badge">||Av &minus; &lambda;v||₂ = 3.88e-09</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select 3x3 matrix preset for power iteration">
+              <button type="button" class="filter-chip is-active" data-eigen-preset="spd_stiffness" aria-pressed="true">SPD Laplacian (4, &minus;1)</button>
+              <button type="button" class="filter-chip" data-eigen-preset="coupled_oscillator" aria-pressed="false">Coupled Oscillator</button>
+              <button type="button" class="filter-chip" data-eigen-preset="hilbert_3x3" aria-pressed="false">3&times;3 Hilbert Matrix</button>
+            </div>
+
+            <dl class="runtime-kv-list">
+              <div class="runtime-kv-row">
+                <dt>Dominant Eigenvalue &lambda;<sub>max</sub> (Fortran Power Iteration)</dt>
+                <dd class="mono-text" id="eigen-val-display">5.4142135624</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>LAPACK Reference (<code>numpy.linalg.eig</code>) &amp; |&Delta;&lambda;|</dt>
+                <dd class="mono-text" id="eigen-lapack-display">5.4142135624 (err: 0.000e+00)</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Unit Dominant Eigenvector v<sub>max</sub></dt>
+                <dd class="mono-text" id="eigen-vec-display">[ 0.500000, -0.707107, 0.500000 ]</dd>
+              </div>
+            </dl>
+          </article>
+
+          <!-- Right Card: O(N) Thomas Tridiagonal Solver -->
+          <article class="surface-card form-panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">O(N) Thomas Tridiagonal Solver (<code>ThomasTridiag</code>)</h3>
+                <p class="panel-subtitle" id="tridiag-subtitle">Uniform Load Beam / Catenary (&minus;u'' = 1)</p>
+              </div>
+              <span class="status-badge status-success" id="tridiag-res-badge">||Tx &minus; b||&infin; = 2.22e-16</span>
+            </div>
+
+            <div class="filter-chip-row" role="group" aria-label="Select tridiagonal boundary-value problem">
+              <button type="button" class="filter-chip is-active" data-tridiag-bc="catenary" aria-pressed="true">Uniform Beam (&minus;u'' = 1)</button>
+              <button type="button" class="filter-chip" data-tridiag-bc="helmholtz_screened" aria-pressed="false">Screened Helmholtz</button>
+              <button type="button" class="filter-chip" data-tridiag-bc="boundary_drive" aria-pressed="false">Boundary Drive (b₁=bₙ=1)</button>
+            </div>
+
+            <dl class="runtime-kv-list">
+              <div class="runtime-kv-row">
+                <dt>Midpoint Solution x<sub>mid</sub> &amp; Peak max|x|</dt>
+                <dd class="mono-text" id="tridiag-mid-val">x(mid) = 1.000000 • max|x| = 1.000000</dd>
+              </div>
+              <div class="runtime-kv-row">
+                <dt>Max Error vs. Dense <code>numpy.linalg.solve</code></dt>
+                <dd class="mono-text" id="tridiag-err-val">0.000e+00 (O(N) 8N FLOPs)</dd>
+              </div>
+            </dl>
+
+            <div class="code-pane">
+              <div class="code-pane-header">
+                <span>Solution Vector Preview x[1..9]</span>
+                <span class="mono-text" id="tridiag-bc-label">21&times;21 Tridiagonal TDMA</span>
+              </div>
+              <pre class="code-block mono-text" id="tridiag-preview-pre">[ 0.09500, 0.18000, 0.25500, 0.32000, 0.37500, 0.42000, 0.45500, 0.48000, 0.49500 ]</pre>
             </div>
           </article>
         </div>
@@ -1232,7 +1316,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
           </div>
         </div>
 
-        <!-- Right Column: Audit Findings, gfortran Compiler Verifier, Recommended .f2py_f2cmap & PEP 561 .pyi Stub -->
+        <!-- Right Column: Audit Findings, gfortran Compiler Verifier, Recommended .f2py_f2cmap, PEP 561 .pyi Stub & Build Scaffolder -->
         <div class="auditor-results-col">
           <div class="surface-card findings-panel">
             <div class="panel-header">
@@ -1242,7 +1326,7 @@ assert z == 6.0  # isinstance(z, float)</pre>
             <div id="audit-findings-list" class="findings-stack"></div>
           </div>
 
-          <div class="surface-card cmap-recommendation-card">
+          <div class="surface-card cmap-recommendation-card" id="gfortran-compile-card">
             <div class="code-pane-header">
               <span>GNU Fortran Compiler Check (<code>gfortran -fsyntax-only -Wall</code>)</span>
               <span class="status-badge status-info" id="gfortran-status-badge">Ready to Verify</span>
@@ -1276,6 +1360,25 @@ assert z == 6.0  # isinstance(z, float)</pre>
               </button>
             </div>
             <pre class="code-block mono-text" id="audit-generated-pyi"># Auto-generated PEP 561 stub</pre>
+          </div>
+
+          <div class="surface-card cmap-recommendation-card" id="f2py-scaffold-card">
+            <div class="code-pane-header">
+              <span>F2PY Packaging Scaffolder (<code>.pyf</code>, <code>meson.build</code> &amp; <code>CMakeLists.txt</code>)</span>
+              <button type="button" class="copy-chip-btn" data-copy-target="audit-scaffold-output" aria-label="Copy generated build scaffold">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span class="copy-btn-text">Copy Scaffold</span>
+              </button>
+            </div>
+            <div class="filter-chip-row" role="group" aria-label="Select build system scaffold format">
+              <button type="button" class="filter-chip is-active" data-scaffold-tab="meson" aria-pressed="true">meson.build</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="pyf" aria-pressed="false">Signature (.pyf)</button>
+              <button type="button" class="filter-chip" data-scaffold-tab="cmake" aria-pressed="false">CMakeLists.txt</button>
+            </div>
+            <pre class="code-block mono-text" id="audit-scaffold-output"># Loading F2PY build scaffold...</pre>
           </div>
         </div>
       </div>
